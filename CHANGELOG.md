@@ -2,6 +2,11 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.4.1 — 2026-09-03
+
+- Suppression de l’action dans la barre de titre de la vue : elle n’ajoutait rien, `Configurer / réparer les hooks` restant disponible dans « Actions » et dans la palette de commandes.
+- L’interrupteur général s’appelle `Activer les notifications` plutôt que `Popups`, qui ne disait pas ce qu’il faisait.
+
 ## 1.4.0 — 2026-09-03
 
 - Les quotas ne sont plus une section repliable : ils occupent le haut du panneau, sans titre, et ne peuvent plus être masqués. C’est la raison d’être du panneau.

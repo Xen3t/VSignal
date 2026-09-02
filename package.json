@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -70,19 +70,16 @@
       {
         "command": "vsignal.toggle",
         "title": "Activer / désactiver",
-        "icon": "$(bell)",
         "category": "VSignal"
       },
       {
         "command": "vsignal.refreshQuotas",
         "title": "Actualiser les quotas",
-        "icon": "$(refresh)",
         "category": "VSignal"
       },
       {
         "command": "vsignal.setup",
         "title": "Configurer Claude et Codex",
-        "icon": "$(tools)",
         "category": "VSignal"
       },
       {
@@ -176,15 +173,6 @@
           "markdownDescription": "Pourcentage **consommé** à partir duquel prévenir. `90` déclenche l’alerte quand il ne reste plus que 10 %. S’applique aux fenêtres `5 h` et `7 j`."
         }
       }
-    },
-    "menus": {
-      "view/title": [
-        {
-          "command": "vsignal.setup",
-          "when": "view == vsignal.controlPanel",
-          "group": "navigation@2"
-        }
-      ]
     }
   },
   "scripts": {

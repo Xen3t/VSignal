@@ -56,7 +56,7 @@ Installez ensuite le fichier `vsignal-*.vsix` produit à la racine du projet.
 Le panneau VSignal, dans la barre d’activité, regroupe tout :
 
 - **Les quotas** occupent le haut du panneau, sans titre ni repli : les fenêtres `5 h` et `7 j` des deux modèles y sont toujours affichées en entier. Le bouton d’actualisation se tient dans leur coin haut droit et tourne pendant la lecture.
-- **Paramètres** — l’interrupteur général sous « Général », ce que les popups affichent, et les alertes modèle par modèle.
+- **Paramètres** — `Activer les notifications` sous « Général », ce que les popups affichent, et les alertes modèle par modèle.
 - **Actions** — tester chaque modèle, réparer ou retirer les hooks.
 
 `Paramètres` et `Actions` se replient d’un clic sur leur titre, et l’état est mémorisé : le panneau peut se réduire aux seuls quotas sans que les réglages deviennent inaccessibles.

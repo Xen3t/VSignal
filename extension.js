@@ -38,7 +38,7 @@ const POPUP_PREFERENCES = [
 const SETTING_GROUPS = [
   // L'interrupteur general n'a pas a occuper le haut du panneau : on l'ouvre
   // rarement, et il n'apprend rien tant que tout va bien.
-  { caption: 'Général', items: [{ key: 'enabled', label: 'Popups' }] },
+  { caption: 'Général', items: [{ key: 'enabled', label: 'Activer les notifications' }] },
   { caption: 'Quotas affichés dans les popups', items: POPUP_PREFERENCES },
   // Regroupees par modele : le libelle reste court, donc lisible en colonne
   // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
