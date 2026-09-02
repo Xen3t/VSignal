@@ -2,6 +2,12 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.4.0 — 2026-09-03
+
+- Les quotas ne sont plus une section repliable : ils occupent le haut du panneau, sans titre, et ne peuvent plus être masqués. C’est la raison d’être du panneau.
+- Le bouton d’actualisation se pose dans le coin haut droit de la carte des quotas.
+- L’interrupteur général quitte le haut du panneau pour un sous-groupe « Général » sous « Paramètres » : on l’ouvre rarement, et il n’apprend rien tant que tout va bien. La pastille « Actif / En pause » de l’en-tête continue d’indiquer l’état.
+
 ## 1.3.1 — 2026-09-03
 
 - Le délai avant réinitialisation ne disparaît plus en colonne étroite : il se condense en `27 min` puis en `27 m` plutôt que d’être masqué.

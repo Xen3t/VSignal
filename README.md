@@ -15,7 +15,7 @@ VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex 
 - **La marque dit le modèle, la couleur dit la gravité.** Le logo Claude ou Codex identifie l’émetteur ; le vert, l’orange et le rouge sont réservés à l’état du quota, jamais à l’identité.
 - Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés.
 - Barres de quota `5 h` et `7 j` en pourcentage **consommé**, comme `/usage` de Claude Code : vert tant qu’il reste de la marge, orange à partir de 60 %, rouge à partir de 80 %.
-- Panneau VS Code dédié : interrupteur général, quotas des deux modèles et réglages regroupés, chaque section se repliant pour ne garder que l’essentiel.
+- Panneau VS Code dédié : les quotas des deux modèles en permanence sous les yeux, le reste replié d’un clic.
 - Alertes automatiques quand une fenêtre de quota devient basse **ou** repart à zéro, activables modèle par modèle.
 - Configuration automatique à chaque démarrage de VS Code, quel que soit le projet ouvert.
 - Aucun serveur VSignal, aucune télémétrie et aucune notification Windows native.
@@ -55,15 +55,13 @@ Installez ensuite le fichier `vsignal-*.vsix` produit à la racine du projet.
 
 Le panneau VSignal, dans la barre d’activité, regroupe tout :
 
-- **Popups** — l’interrupteur général, qui coupe ou rallume toutes les notifications.
-- **Quotas consommés** — les fenêtres `5 h` et `7 j` des deux modèles, toujours affichées ici en entier.
-- **Paramètres** — ce que les popups affichent, et les alertes, modèle par modèle.
+- **Les quotas** occupent le haut du panneau, sans titre ni repli : les fenêtres `5 h` et `7 j` des deux modèles y sont toujours affichées en entier. Le bouton d’actualisation se tient dans leur coin haut droit et tourne pendant la lecture.
+- **Paramètres** — l’interrupteur général sous « Général », ce que les popups affichent, et les alertes modèle par modèle.
+- **Actions** — tester chaque modèle, réparer ou retirer les hooks.
 
-Les trois sections se replient d’un clic sur leur titre, et l’état est mémorisé : on peut ne garder que les quotas sous les yeux sans perdre l’accès aux réglages. Le bouton d’actualisation se trouve à droite du titre « Quotas consommés » et tourne pendant la lecture.
+`Paramètres` et `Actions` se replient d’un clic sur leur titre, et l’état est mémorisé : le panneau peut se réduire aux seuls quotas sans que les réglages deviennent inaccessibles.
 
 En colonne étroite, le délai avant réinitialisation ne disparaît pas : il se condense, de `reset dans 27 min` à `27 min` puis à `27 m`. Le pourcentage, lui, reste toujours affiché en entier.
-- **Actions** — tester chaque modèle, actualiser les quotas, réparer ou retirer les hooks.
-
 Les hooks étant réinstallés et réparés à chaque démarrage de VS Code, le panneau ne consacre pas de place à leur état. Pour le vérifier ponctuellement, `VSignal: Afficher l’état` récapitule le script, les hooks Claude et le hook Codex.
 
 Les mêmes actions restent disponibles dans la palette de commandes :

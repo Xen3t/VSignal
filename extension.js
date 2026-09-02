@@ -36,6 +36,9 @@ const POPUP_PREFERENCES = [
 
 // Tout ce que le panneau expose sous « Paramètres », en deux groupes.
 const SETTING_GROUPS = [
+  // L'interrupteur general n'a pas a occuper le haut du panneau : on l'ouvre
+  // rarement, et il n'apprend rien tant que tout va bien.
+  { caption: 'Général', items: [{ key: 'enabled', label: 'Popups' }] },
   { caption: 'Quotas affichés dans les popups', items: POPUP_PREFERENCES },
   // Regroupees par modele : le libelle reste court, donc lisible en colonne
   // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
@@ -693,6 +696,19 @@ body {
 
 .icon-button svg { width: 13px; height: 13px; display: block; }
 
+/* Les quotas sont la raison d'etre du panneau : ils ne se replient pas et
+   n'ont pas besoin d'un titre. L'actualisation se pose dans leur coin. */
+.quota-card { position: relative; padding-top: 11px; }
+
+.icon-button.floating {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  margin: 0;
+}
+
+.quota-card .quota-agent:first-child .quota-head { padding-right: 22px; }
+
 .icon-button.busy svg { animation: spin 0.9s linear infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -776,10 +792,6 @@ body {
 }
 
 .toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
-
-.master { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-
-.master .title { font-weight: 600; }
 
 .quota-agent + .quota-agent { margin-top: 14px; }
 
@@ -877,8 +889,6 @@ button.action.quiet {
 
 button.action.quiet:hover { color: var(--vscode-foreground); background: rgba(128, 128, 128, 0.12); }
 
-.paused { opacity: 0.5; }
-
 /* Colonne etroite : on retire le superflu plutot que de laisser deborder. */
 /* Le delai avant reinitialisation ne disparait jamais : il se condense. */
 .reset .mid,
@@ -942,11 +952,6 @@ function renderStatus(state) {
   pill.textContent = state.enabled ? 'Actif' : 'En pause';
   pill.className = 'pill ' + (state.enabled ? 'on' : 'off');
 
-  const master = document.getElementById('master');
-  master.innerHTML = '';
-  master.appendChild(el('div', 'title', 'Popups'));
-  master.appendChild(toggle(state.enabled, () => send({ type: 'command', command: 'vsignal.toggle' })));
-
   const prefs = document.getElementById('prefs');
   prefs.innerHTML = '';
   for (const group of state.groups) {
@@ -955,7 +960,7 @@ function renderStatus(state) {
     for (const item of group.items) {
       const row = el('div', 'row');
       const name = el('div', 'name');
-      name.appendChild(el('span', 'dot ' + item.agent.toLowerCase()));
+      if (item.agent) name.appendChild(el('span', 'dot ' + item.agent.toLowerCase()));
       name.appendChild(el('span', null, item.label));
       row.appendChild(name);
       row.appendChild(toggle(item.value, value => send({ type: 'pref', key: item.key, value })));
@@ -964,7 +969,6 @@ function renderStatus(state) {
     prefs.appendChild(block);
   }
 
-  document.getElementById('master-card').classList.toggle('paused', !state.enabled);
 }
 
 function renderQuotas(payload) {
@@ -1148,7 +1152,8 @@ class ControlPanelProvider {
           key: item.key,
           label: item.label,
           agent: item.agent,
-          value: config.get(item.key, true)
+          // Pour les popups, le marqueur sur disque fait foi, pas le reglage.
+          value: item.key === 'enabled' ? isEnabled() : config.get(item.key, true)
         }))
       }))
     });
@@ -1188,19 +1193,14 @@ class ControlPanelProvider {
       'VSignal</div>',
       '<span id="status-pill" class="pill off">…</span>',
       '</div>',
-      '<div class="card" id="master-card"><div class="master" id="master"></div></div>',
-      '<div class="section with-action">',
-      '<button class="section-toggle" type="button" data-target="quotas" aria-expanded="true">',
-      '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
-      '<span>Quotas consommés</span>',
-      '</button>',
-      '<button class="icon-button" id="refresh" type="button" data-command="vsignal.refreshQuotas"',
+      '<div class="card quota-card">',
+      '<button class="icon-button floating" id="refresh" type="button" data-command="vsignal.refreshQuotas"',
       ' title="Actualiser les quotas" aria-label="Actualiser les quotas">',
       '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">',
       '<path d="M13.6 7a5.7 5.7 0 1 0-.5 3.4"/><path d="M13.9 3.1v3.6h-3.6"/>',
       '</svg></button>',
+      '<div id="quotas"></div>',
       '</div>',
-      '<div class="card" id="quotas"></div>',
       '<div class="section">',
       '<button class="section-toggle" type="button" data-target="prefs" aria-expanded="true">',
       '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
