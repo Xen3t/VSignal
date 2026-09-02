@@ -1302,6 +1302,7 @@ class ControlPanelProvider {
 
 function activate(context) {
   applyEnabledState(configuredEnabled());
+  let scheduleQuotaWatch = () => {};
   writePopupPreferences();
   controlPanelProvider = new ControlPanelProvider(context);
   context.subscriptions.push(
@@ -1327,8 +1328,9 @@ function activate(context) {
         writePopupPreferences();
         if (controlPanelProvider) controlPanelProvider.refresh();
       }
-      if (event.affectsConfiguration('vsignal.alert') && controlPanelProvider) {
-        controlPanelProvider.refresh();
+      if (event.affectsConfiguration('vsignal.alert')) {
+        if (controlPanelProvider) controlPanelProvider.refresh();
+        scheduleQuotaWatch();
       }
     })
   );
@@ -1351,13 +1353,16 @@ function activate(context) {
     })
   );
 
-  // Panneau ouvert, les quotas sont deja relus en continu : la surveillance
-  // suit le meme rythme sans rien couter de plus. Panneau ferme, chaque tour
-  // demarre un codex app-server pour un evenement qui survient quelques fois
-  // par jour : on espace.
+  // Le quota Claude n'a pas besoin de ce minuteur : la surveillance de
+  // ~/.claude.json le rattrape en quelques secondes. Ce tour d'horloge sert
+  // surtout a Codex, dont chaque lecture demarre un app-server. La cadence
+  // est donc reglable plutot que devinee.
   let quotaWatch;
-  const scheduleQuotaWatch = () => {
-    const minutes = controlPanelProvider && controlPanelProvider.isVisible() ? 5 : 15;
+  scheduleQuotaWatch = () => {
+    clearTimeout(quotaWatch);
+    const minutes = Math.min(60, Math.max(1, Number(
+      vscode.workspace.getConfiguration('vsignal').get('alert.intervalMinutes', 5)
+    )));
     quotaWatch = setTimeout(async () => {
       await checkQuotaEvents(context);
       scheduleQuotaWatch();

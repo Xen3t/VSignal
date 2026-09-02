@@ -87,7 +87,7 @@ Les deux sources n’ont pas le même prix. Le quota Claude se lit dans `~/.clau
 | Bouton d’actualisation | oui | oui, forcé |
 | Avant chaque popup | oui | oui |
 
-Le fichier `~/.claude.json` est surveillé par sondage de son horodatage, ce qui résiste aux écritures par fichier temporaire suivies d’un renommage. La surveillance des alertes suit le même raisonnement : toutes les cinq minutes tant que le panneau est ouvert, puis toutes les quinze minutes une fois fermé, chaque tour démarrant sinon un `codex app-server` pour un événement qui survient quelques fois par jour.
+Le fichier `~/.claude.json` est surveillé par sondage de son horodatage, ce qui résiste aux écritures par fichier temporaire suivies d’un renommage. La surveillance des alertes tourne de son côté toutes les cinq minutes, panneau ouvert ou fermé, et `vsignal.alert.intervalMinutes` permet de la resserrer jusqu’à la minute. Descendre n’accélère que Codex : le quota Claude est déjà rattrapé en quelques secondes par la surveillance du fichier. Chaque tour coûte environ 0,7 s de processeur, le temps de démarrer un `codex app-server`.
 
 Une ligne `Actualisé il y a…` sous les quotas indique quand la dernière lecture a eu lieu : un panneau figé se voit immédiatement.
 
@@ -107,6 +107,7 @@ Les deux se déclenchent sur **transition**, jamais en continu : l’alerte de q
 | `vsignal.alert.reset.claude` | Prévenir quand une fenêtre Claude repart à zéro |
 | `vsignal.alert.reset.codex` | Prévenir quand une fenêtre Codex repart à zéro |
 | `vsignal.alert.threshold` | Pourcentage consommé déclencheur, `90` par défaut, soit 10 % restants |
+| `vsignal.alert.intervalMinutes` | Minutes entre deux vérifications, `5` par défaut, `1` au minimum |
 
 Ces alertes ignorent les quatre réglages ci-dessous : la barre concernée est toujours affichée, puisque c’est l’objet même de la notification.
 

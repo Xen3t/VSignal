@@ -2,6 +2,10 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.5.2 — 2026-09-03
+
+- La cadence de surveillance des alertes devient réglable par `vsignal.alert.intervalMinutes`, de 1 à 60 minutes, et s’applique que le panneau soit ouvert ou fermé. L’écart de charge entre cinq et quinze minutes s’étant révélé négligeable à la mesure — 2,3 minutes de processeur par jour — l’adaptation automatique introduite en 1.5.1 n’avait plus de justification.
+
 ## 1.5.1 — 2026-09-03
 
 - La surveillance des alertes s’adapte : toutes les cinq minutes quand le panneau est ouvert, puisque les quotas y sont déjà relus en continu, et toutes les quinze minutes une fois le panneau fermé, où chaque tour démarre un `codex app-server` pour un événement qui survient quelques fois par jour.
