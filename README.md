@@ -76,20 +76,15 @@ Les mêmes actions restent disponibles dans la palette de commandes :
 
 ### Quand les quotas sont-ils actualisés ?
 
-Les deux sources n’ont pas le même prix. Le quota Claude se lit dans `~/.claude.json`, que Claude Code tient à jour : c’est un simple accès fichier. Le quota Codex demande de démarrer un `codex app-server` et prend plusieurs secondes. Les cadences sont donc distinctes.
+Panneau ouvert, VSignal relit **les deux quotas toutes les minutes**. Les deux lectures partent ensemble et ne sont publiées qu’une fois toutes deux revenues, si bien que l’affichage ne change qu’une seule fois par cycle.
 
-| Déclencheur | Claude | Codex |
-| --- | --- | --- |
-| Ouverture du panneau | oui | oui |
-| Panneau visible | toutes les 30 s | au plus toutes les 3 min |
-| `~/.claude.json` modifié | oui, au plus toutes les 20 s | non |
-| Fenêtre VS Code reprenant le focus | oui, au plus toutes les 20 s | non |
-| Bouton d’actualisation | oui | oui, forcé |
-| Avant chaque popup | oui | oui |
+S’y ajoutent, limités à une lecture toutes les 20 s : toute modification de `~/.claude.json`, surveillée par sondage de son horodatage pour résister aux écritures par fichier temporaire suivies d’un renommage, et le retour du focus sur la fenêtre VS Code. Le bouton d’actualisation force une relecture immédiate.
 
-Le fichier `~/.claude.json` est surveillé par sondage de son horodatage, ce qui résiste aux écritures par fichier temporaire suivies d’un renommage. La surveillance des alertes tourne de son côté toutes les cinq minutes, panneau ouvert ou fermé, et `vsignal.alert.intervalMinutes` permet de la resserrer jusqu’à la minute. Descendre n’accélère que Codex : le quota Claude est déjà rattrapé en quelques secondes par la surveillance du fichier. Chaque tour coûte environ 0,7 s de processeur, le temps de démarrer un `codex app-server`.
+Rien ne bouge pendant une lecture : les valeurs affichées restent les dernières connues, le DOM n’est pas reconstruit, et seules les valeurs changées sont corrigées sur place. Les barres glissent vers leur nouvelle longueur au lieu de repartir de zéro. La ligne `Actualisé il y a…` sous les quotas confirme que le cycle tourne.
 
-Une ligne `Actualisé il y a…` sous les quotas indique quand la dernière lecture a eu lieu : un panneau figé se voit immédiatement.
+Une lecture Codex démarre un `codex app-server`, soit environ 0,7 s de processeur : à raison d’une par minute, comptez près d’un quart d’heure de processeur par jour, panneau ouvert.
+
+Panneau fermé, seule la surveillance des alertes continue, à la cadence de `vsignal.alert.intervalMinutes`.
 
 ### Alertes de quota
 
@@ -107,7 +102,7 @@ Les deux se déclenchent sur **transition**, jamais en continu : l’alerte de q
 | `vsignal.alert.reset.claude` | Prévenir quand une fenêtre Claude repart à zéro |
 | `vsignal.alert.reset.codex` | Prévenir quand une fenêtre Codex repart à zéro |
 | `vsignal.alert.threshold` | Pourcentage consommé déclencheur, `90` par défaut, soit 10 % restants |
-| `vsignal.alert.intervalMinutes` | Minutes entre deux vérifications, `5` par défaut, `1` au minimum |
+| `vsignal.alert.intervalMinutes` | Minutes entre deux vérifications panneau fermé, `1` par défaut |
 
 Ces alertes ignorent les quatre réglages ci-dessous : la barre concernée est toujours affichée, puisque c’est l’objet même de la notification.
 

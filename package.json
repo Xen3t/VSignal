@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -174,11 +174,11 @@
         },
         "vsignal.alert.intervalMinutes": {
           "type": "number",
-          "default": 5,
+          "default": 1,
           "minimum": 1,
           "maximum": 60,
           "order": 10,
-          "markdownDescription": "Minutes entre deux vérifications des alertes de quota. Descendre sous `5` n’accélère que Codex : le quota Claude est déjà rattrapé en quelques secondes par la surveillance de `~/.claude.json`. Chaque tour démarre un `codex app-server`, soit environ 0,7 s de processeur."
+          "markdownDescription": "Minutes entre deux vérifications des alertes de quota, quand le panneau est fermé. Panneau ouvert, les quotas sont relus toutes les minutes de toute façon."
         }
       }
     }

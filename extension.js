@@ -984,27 +984,59 @@ function renderStatus(state) {
 
 }
 
+// Le panneau se recharge toutes les minutes : reconstruire le DOM a chaque
+// fois ferait repartir les barres de zero et sauter la mise en page. On ne
+// rebatit donc que si la structure change, sinon on corrige les valeurs sur
+// place et la transition CSS fait le reste.
+let quotaShape = '';
+const quotaCells = new Map();
+
+function shapeOf(agents) {
+  return agents.map(entry => entry.agent + ':' + entry.values.map(v => v.window).join(',')).join('|');
+}
+
 function renderQuotas(payload) {
-  const host = document.getElementById('quotas');
-  host.innerHTML = '';
   const refresh = document.getElementById('refresh');
   if (refresh) refresh.classList.toggle('busy', Boolean(payload.loading));
 
-  if (payload.loading) {
-    for (let index = 0; index < 2; index++) {
-      const block = el('div', 'quota-agent');
-      block.appendChild(el('div', 'muted', 'Lecture des quotas…'));
-      const skeleton = el('div', 'skeleton');
-      skeleton.style.marginTop = '8px';
-      block.appendChild(skeleton);
-      host.appendChild(block);
-    }
+  // Une lecture en cours ne doit rien changer a l'ecran : les valeurs
+  // affichees restent les dernieres connues jusqu'a l'arrivee des nouvelles.
+  if (!payload.agents) {
+    if (payload.loading && !quotaCells.size) showSkeleton();
     return;
   }
+  if (payload.loading && quotaCells.size) return;
 
   lastQuotaAt = payload.at || lastQuotaAt;
 
-  for (const entry of payload.agents) {
+  const shape = shapeOf(payload.agents);
+  if (shape !== quotaShape || !quotaCells.size) {
+    buildQuotas(payload.agents);
+    quotaShape = shape;
+  }
+
+  updateQuotas(payload.agents);
+}
+
+function showSkeleton() {
+  const host = document.getElementById('quotas');
+  host.innerHTML = '';
+  for (let index = 0; index < 2; index++) {
+    const block = el('div', 'quota-agent');
+    block.appendChild(el('div', 'muted', 'Lecture des quotas…'));
+    const skeleton = el('div', 'skeleton');
+    skeleton.style.marginTop = '8px';
+    block.appendChild(skeleton);
+    host.appendChild(block);
+  }
+}
+
+function buildQuotas(agents) {
+  const host = document.getElementById('quotas');
+  host.innerHTML = '';
+  quotaCells.clear();
+
+  for (const entry of agents) {
     const block = el('div', 'quota-agent');
     const head = el('div', 'quota-head');
     head.appendChild(el('span', 'badge ' + entry.agent.toLowerCase(), entry.agent));
@@ -1023,32 +1055,60 @@ function renderQuotas(payload) {
       const meta = el('div', 'quota-meta');
       const left = el('span', 'muted left');
       left.appendChild(el('span', null, value.window));
-      if (value.reset) {
-        const reset = el('span', 'reset');
-        reset.title = 'reset dans ' + value.reset;
-        reset.appendChild(el('span', 'full', '  ·  reset dans ' + value.reset));
-        reset.appendChild(el('span', 'mid', '  ·  ' + value.reset));
-        reset.appendChild(el('span', 'tight', ' · ' + tighten(value.reset)));
-        left.appendChild(reset);
-      }
-      const right = el('span', 'value', value.percent + ' %');
+
+      const reset = el('span', 'reset');
+      const full = el('span', 'full');
+      const mid = el('span', 'mid');
+      const tight = el('span', 'tight');
+      reset.appendChild(full);
+      reset.appendChild(mid);
+      reset.appendChild(tight);
+      left.appendChild(reset);
+
+      const right = el('span', 'value');
       meta.appendChild(left);
       meta.appendChild(right);
       line.appendChild(meta);
 
       const track = el('div', 'track');
       const fill = el('div', 'fill');
-      fill.style.background = barColor(value.percent);
       track.appendChild(fill);
       line.appendChild(track);
       block.appendChild(line);
-      requestAnimationFrame(() => { fill.style.width = value.percent + '%'; });
+
+      quotaCells.set(entry.agent + '|' + value.window, { reset, full, mid, tight, right, fill });
     }
 
     host.appendChild(block);
   }
 
   host.appendChild(freshnessLine());
+}
+
+function updateQuotas(agents) {
+  for (const entry of agents) {
+    for (const value of entry.values) {
+      const cell = quotaCells.get(entry.agent + '|' + value.window);
+      if (!cell) continue;
+
+      cell.right.textContent = value.percent + ' %';
+      cell.fill.style.background = barColor(value.percent);
+      cell.fill.style.width = value.percent + '%';
+
+      if (value.reset) {
+        cell.reset.hidden = false;
+        cell.reset.title = 'reset dans ' + value.reset;
+        cell.full.textContent = '  ·  reset dans ' + value.reset;
+        cell.mid.textContent = '  ·  ' + value.reset;
+        cell.tight.textContent = ' · ' + tighten(value.reset);
+      } else {
+        cell.reset.hidden = true;
+      }
+    }
+  }
+
+  const line = document.getElementById('freshness');
+  if (line) line.textContent = freshnessText();
 }
 
 // Sans repere, rien ne distingue un panneau a jour d'un panneau fige.
@@ -1117,11 +1177,11 @@ class ControlPanelProvider {
     this.throttledAt = 0;
   }
 
-  // Lire Claude ne coute qu'un acces fichier, on le fait souvent. Lire Codex
-  // demarre un app-server et prend plusieurs secondes : on l'espace.
+  // Relecture complete chaque minute, Codex compris. L'affichage ne bouge pas
+  // pendant la lecture : les valeurs ne sont remplacees qu'une fois arrivees.
   startAutoRefresh() {
     this.stopAutoRefresh();
-    this.autoRefresh = setInterval(() => this.refresh(), 30 * 1000);
+    this.autoRefresh = setInterval(() => this.refresh(true), 60 * 1000);
   }
 
   // Pour les declencheurs subis — fichier modifie, fenetre reprenant le focus
@@ -1237,18 +1297,13 @@ class ControlPanelProvider {
     if (first) this.post({ type: 'quotas', loading: true });
     else this.postQuotas(true);
 
-    this.values.Claude = parseQuota(await readQuota('Claude'));
+    // Les deux lectures partent ensemble et ne sont publiees qu'une fois
+    // toutes deux revenues : un seul rafraichissement, donc aucun sursaut.
+    const [claude, codex] = await Promise.all([readQuota('Claude'), readQuota('Codex')]);
     if (token !== this.quotaToken) return;
 
-    const codexDue = force || !this.values.Codex || Date.now() - this.codexReadAt > 3 * 60 * 1000;
-    if (!codexDue) {
-      this.postQuotas(false);
-      return;
-    }
-
-    this.postQuotas(true);
-    this.values.Codex = parseQuota(await readQuota('Codex'));
-    if (token !== this.quotaToken) return;
+    this.values.Claude = parseQuota(claude);
+    this.values.Codex = parseQuota(codex);
     this.codexReadAt = Date.now();
     this.postQuotas(false);
   }

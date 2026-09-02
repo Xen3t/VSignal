@@ -2,6 +2,12 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.6.0 — 2026-09-03
+
+- Les deux quotas sont relus **toutes les minutes** quand le panneau est ouvert, Codex compris. Les deux lectures partent ensemble et ne sont publiées qu’une fois toutes deux revenues.
+- L’affichage ne bouge plus pendant une lecture. Le panneau reconstruisait son DOM à chaque cycle, ce qui faisait repartir les barres de zéro ; il ne rebâtit désormais que si la structure change, et corrige sinon les valeurs sur place. Vérifié : hauteur de la carte identique avant, pendant et après un cycle.
+- Plus de squelette de chargement une fois les premières valeurs connues.
+
 ## 1.5.2 — 2026-09-03
 
 - La cadence de surveillance des alertes devient réglable par `vsignal.alert.intervalMinutes`, de 1 à 60 minutes, et s’applique que le panneau soit ouvert ou fermé. L’écart de charge entre cinq et quinze minutes s’étant révélé négligeable à la mesure — 2,3 minutes de processeur par jour — l’adaptation automatique introduite en 1.5.1 n’avait plus de justification.
