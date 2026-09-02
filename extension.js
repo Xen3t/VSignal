@@ -342,14 +342,35 @@ function parseQuota(text) {
   return values;
 }
 
+// Le JSON echappe les antislashs des chemins Windows : chercher le fragment
+// dans le texte brut du fichier ne marche jamais. Il faut comparer les
+// commandes une fois decodees.
 function hasClaudeHook() {
   if (!fs.existsSync(CLAUDE_SETTINGS)) return false;
-  return isManagedCommand(fs.readFileSync(CLAUDE_SETTINGS, 'utf8'));
+
+  try {
+    const raw = fs.readFileSync(CLAUDE_SETTINGS, 'utf8').replace(/^\uFEFF/, '');
+    const settings = raw.trim() ? JSON.parse(raw) : {};
+    if (!settings.hooks || typeof settings.hooks !== 'object') return false;
+
+    return Object.values(settings.hooks).some(groups =>
+      Array.isArray(groups) &&
+      groups.some(group =>
+        group &&
+        Array.isArray(group.hooks) &&
+        group.hooks.some(hook => hook && isManagedCommand(hook.command))));
+  } catch {
+    return false;
+  }
 }
 
+// Seule la ligne notify active compte : un chemin VSignal cite ailleurs dans
+// le fichier ne doit pas faire croire que le hook est en place.
 function hasCodexHook() {
   if (!fs.existsSync(CODEX_CONFIG)) return false;
-  return isManagedCommand(fs.readFileSync(CODEX_CONFIG, 'utf8'));
+
+  const match = fs.readFileSync(CODEX_CONFIG, 'utf8').match(/^\s*notify\s*=\s*\[[^\r\n]*\]\s*$/m);
+  return Boolean(match && isManagedCommand(match[0]));
 }
 
 function removeManagedHooks() {

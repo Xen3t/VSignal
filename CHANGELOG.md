@@ -2,6 +2,11 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.1.1 — 2026-09-03
+
+- Correction : le panneau annonçait « Claude : à configurer » alors que le hook était bien installé. La détection lisait le texte brut de `settings.json`, où les antislashs des chemins Windows sont échappés, et ne pouvait donc jamais correspondre.
+- La présence du hook Codex est désormais jugée sur la ligne `notify` active plutôt que sur le fichier entier.
+
 ## 1.1.0 — 2026-09-02
 
 - Popup redessinée : pastille d’état colorée, titre et sous-titre séparés, quotas alignés en grille et ligne de vie indiquant le temps restant.
