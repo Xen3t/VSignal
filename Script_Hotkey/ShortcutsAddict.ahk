@@ -1,3 +1,481 @@
+﻿; ============================================================
+; SwitchDualWindow - autonome, 1 seul fichier
+;
+; ² (1 appui)        = swap des 2 fenêtres
+; ²² (double appui)  = active/désactive la gestion vidéo
+; Caps Lock           = super touche de raccourcis
+;
+; Aucun swap lors du double appui.
+; Aucune notification Windows.
+; ============================================================
+
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+
+; Gestion vidéo activée par défaut à chaque lancement.
+MediaAutomationEnabled := true
+
+; Sert à distinguer simple et double appui sur ².
+SwapPending := false
+
+; Menu dans l’icône AutoHotkey près de l’horloge.
+A_TrayMenu.Add()
+A_TrayMenu.Add("Gestion vidéo automatique", ToggleMediaAutomation)
+A_TrayMenu.Check("Gestion vidéo automatique")
+
+; ------------------------------------------------------------
+; Menu clic droit : ON / OFF gestion vidéo
+; ------------------------------------------------------------
+ToggleMediaAutomation(*)
+{
+    ToggleMediaAutomationState()
+}
+
+ToggleMediaAutomationState()
+{
+    global MediaAutomationEnabled
+
+    MediaAutomationEnabled := !MediaAutomationEnabled
+
+    if MediaAutomationEnabled
+        A_TrayMenu.Check("Gestion vidéo automatique")
+    else
+        A_TrayMenu.Uncheck("Gestion vidéo automatique")
+
+    SpeakState(MediaAutomationEnabled)
+}
+
+; ------------------------------------------------------------
+; Confirmation vocale française
+; ------------------------------------------------------------
+SpeakState(enabled)
+{
+    try {
+        voice := ComObject("SAPI.SpVoice")
+        voice.Volume := 100
+        voice.Rate := 0
+        voice.Speak(enabled ? "Activé" : "Désactivé", 0)
+    }
+}
+
+; ============================================================
+; CAPS LOCK = SUPER TOUCHE (ROBUST MODE)
+; ============================================================
+; Caps Lock is NEVER allowed to toggle uppercase mode.
+; We use its physical pressed state as a modifier instead.
+
+SetCapsLockState "Off"
+
+; Block the native Caps Lock behavior completely.
+*CapsLock::
+{
+    SetCapsLockState "Off"
+}
+
+*CapsLock Up::
+{
+    SetCapsLockState "Off"
+}
+
+; While Caps Lock is physically held, the shortcuts below are active.
+#HotIf GetKeyState("CapsLock", "P")
+
+; ------------------------------------------------------------
+; APPLICATIONS / TOOLS
+; ------------------------------------------------------------
+
+e::
+{
+    Run "explorer.exe"
+}
+
+c::
+{
+    Run "calc.exe"
+}
+
+t::
+{
+    try {
+        Run "wt.exe"
+    } catch {
+        Run "powershell.exe"
+    }
+}
+
+v::
+{
+    Send "#v"
+}
+
+; ------------------------------------------------------------
+; MEDIA
+; ------------------------------------------------------------
+
+Space::
+{
+    Send "{Media_Play_Pause}"
+}
+
+Up::
+{
+    Send "{Volume_Up}"
+}
+
+Down::
+{
+    Send "{Volume_Down}"
+}
+
+Left::
+{
+    Send "{Media_Prev}"
+}
+
+Right::
+{
+    Send "{Media_Next}"
+}
+
+WheelUp::
+{
+    Send "{Volume_Up}"
+}
+
+WheelDown::
+{
+    Send "{Volume_Down}"
+}
+
+; ------------------------------------------------------------
+; WINDOW MANAGEMENT
+; ------------------------------------------------------------
+
+w::
+{
+    WinClose "A"
+}
+
+a::
+{
+    WinSetAlwaysOnTop -1, "A"
+}
+
+m::
+{
+    WinMinimize "A"
+}
+
+Enter::
+{
+    if WinGetMinMax("A") = 1
+        WinRestore "A"
+    else
+        WinMaximize "A"
+}
+
+#HotIf
+
+; ------------------------------------------------------------
+; Touche ²
+; ------------------------------------------------------------
+; Bloque la touche pour éviter d'écrire "²" dans la fenêtre active.
+SC029::return
+
+; Déclenche la logique au relâchement pour éviter l'auto-répétition.
+SC029 Up::
+{
+    global SwapPending
+
+    ; Deuxième appui rapide : toggle vidéo, aucun swap.
+    if SwapPending {
+        SwapPending := false
+        SetTimer(DoPendingSwap, 0)
+        ToggleMediaAutomationState()
+        return
+    }
+
+    ; Premier appui : attend 250 ms pour voir s'il y en a un second.
+    SwapPending := true
+    SetTimer(DoPendingSwap, -250)
+}
+
+DoPendingSwap()
+{
+    global SwapPending
+
+    if !SwapPending
+        return
+
+    SwapPending := false
+    SwapWindows()
+}
+
+; ------------------------------------------------------------
+; Swap principal
+; ------------------------------------------------------------
+SwapWindows()
+{
+    global MediaAutomationEnabled
+
+    if MonitorGetCount() < 2 {
+        MsgBox "Il faut au moins 2 écrans."
+        return
+    }
+
+    primary := MonitorGetPrimary()
+    secondary := GetOtherMonitor(primary)
+    if !secondary
+        return
+
+    winPrimary := GetTopWindowOnMonitor(primary)
+    winSecondary := GetTopWindowOnMonitor(secondary)
+
+    if !winPrimary || !winSecondary || winPrimary = winSecondary
+        return
+
+    ; --------------------------------------------------------
+    ; Média AVANT le swap
+    ; --------------------------------------------------------
+    mediaPrimary := 0
+    mediaSecondary := 0
+
+    if MediaAutomationEnabled {
+        try sessions := Media.GetSessions()
+        catch
+            sessions := []
+
+        mediaPrimary := FindMediaForWindow(winPrimary, winSecondary, sessions)
+        mediaSecondary := FindMediaForWindow(winSecondary, winPrimary, sessions)
+
+        ; La fenêtre qui quitte l'écran principal : pause si elle joue.
+        if IsObject(mediaPrimary) {
+            try {
+                if mediaPrimary.PlaybackStatus = Media.PlaybackStatus.Playing
+                    mediaPrimary.Pause()
+            }
+        }
+    }
+
+    ; --------------------------------------------------------
+    ; Zones utilisables des écrans
+    ; --------------------------------------------------------
+    MonitorGetWorkArea(primary, &pL, &pT, &pR, &pB)
+    MonitorGetWorkArea(secondary, &sL, &sT, &sR, &sB)
+
+    ; Restaure avant déplacement.
+    try WinRestore("ahk_id " winPrimary)
+    try WinRestore("ahk_id " winSecondary)
+
+    ; Swap.
+    WinMove(sL, sT, sR - sL, sB - sT, "ahk_id " winPrimary)
+    WinMove(pL, pT, pR - pL, pB - pT, "ahk_id " winSecondary)
+
+    ; Maximisation native Windows.
+    WinMaximize("ahk_id " winPrimary)
+    WinMaximize("ahk_id " winSecondary)
+
+    ; Focus sur la fenêtre qui vient d'arriver sur l'écran principal.
+    WinActivate("ahk_id " winSecondary)
+
+    ; Laisse Windows / le navigateur finir le déplacement.
+    Sleep 120
+
+    ; --------------------------------------------------------
+    ; Média APRÈS le swap
+    ; --------------------------------------------------------
+    ; La fenêtre qui arrive sur le principal : play si elle est en pause.
+    if MediaAutomationEnabled && IsObject(mediaSecondary) {
+        try {
+            if mediaSecondary.PlaybackStatus = Media.PlaybackStatus.Paused
+                mediaSecondary.Play()
+        }
+    }
+}
+
+GetOtherMonitor(primary)
+{
+    count := MonitorGetCount()
+    Loop count {
+        if A_Index != primary
+            return A_Index
+    }
+    return 0
+}
+
+GetTopWindowOnMonitor(mon)
+{
+    MonitorGet(mon, &ml, &mt, &mr, &mb)
+
+    for hwnd in WinGetList() {
+        if !DllCall("IsWindowVisible", "ptr", hwnd)
+            continue
+
+        try {
+            if WinGetMinMax("ahk_id " hwnd) = -1
+                continue
+        } catch {
+            continue
+        }
+
+        try class := WinGetClass("ahk_id " hwnd)
+        catch
+            continue
+
+        if class = "Progman"
+        || class = "WorkerW"
+        || class = "Shell_TrayWnd"
+        || class = "Shell_SecondaryTrayWnd"
+            continue
+
+        try WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+        catch
+            continue
+
+        if w < 100 || h < 100
+            continue
+
+        cx := x + w / 2
+        cy := y + h / 2
+
+        if cx >= ml && cx < mr && cy >= mt && cy < mb
+            return hwnd
+    }
+
+    return 0
+}
+
+FindMediaForWindow(hwnd, otherHwnd, sessions)
+{
+    if sessions.Length = 0
+        return 0
+
+    try winTitle := WinGetTitle("ahk_id " hwnd)
+    catch
+        winTitle := ""
+
+    try processName := NormalizeAppName(WinGetProcessName("ahk_id " hwnd))
+    catch
+        return 0
+
+    if IsAudioOnlyApp(processName)
+        return 0
+
+    try otherProcess := NormalizeAppName(WinGetProcessName("ahk_id " otherHwnd))
+    catch
+        otherProcess := ""
+
+    ; 1) MATCH FORT : le titre du média apparaît dans le titre de la fenêtre.
+    ; Très utile pour YouTube / Twitch / lecteurs web, y compris avec deux Edge/Chrome.
+    for session in sessions {
+        try mediaTitle := session.Title
+        catch
+            mediaTitle := ""
+
+        if mediaTitle != "" && TitleMatches(winTitle, mediaTitle)
+            return session
+    }
+
+    ; 2) MATCH APP : si une seule des deux fenêtres appartient à l'application
+    ; de la session, l'association est sûre.
+    for session in sessions {
+        try source := NormalizeAppName(session.SourceAppUserModelId)
+        catch
+            continue
+
+        thisMatches := AppsMatch(processName, source)
+        otherMatches := otherProcess != "" && AppsMatch(otherProcess, source)
+
+        if thisMatches && !otherMatches
+            return session
+    }
+
+    ; 3) Si les deux fenêtres sont du même navigateur/processus et que le titre
+    ; n'a pas permis de trancher, on NE DEVINE PAS : mieux vaut ne rien faire
+    ; que mettre en pause / lancer la mauvaise vidéo.
+    return 0
+}
+
+TitleMatches(windowTitle, mediaTitle)
+{
+    w := StrLower(Trim(windowTitle))
+    m := StrLower(Trim(mediaTitle))
+
+    if m = "" || w = ""
+        return false
+
+    ; Match direct.
+    if InStr(w, m)
+        return true
+
+    ; Certains sites ajoutent / retirent des espaces ou ponctuations.
+    w2 := RegExReplace(w, "[^\pL\pN]+", "")
+    m2 := RegExReplace(m, "[^\pL\pN]+", "")
+
+    return StrLen(m2) >= 6 && InStr(w2, m2)
+}
+
+AppsMatch(processName, source)
+{
+    if processName = "" || source = ""
+        return false
+
+    if processName = source
+        return true
+
+    if InStr(source, processName) || InStr(processName, source)
+        return true
+
+    if processName = "msedge" && (source = "edge" || InStr(source, "msedge"))
+        return true
+
+    if processName = "chrome" && (source = "googlechrome" || InStr(source, "chrome"))
+        return true
+
+    if processName = "brave" && InStr(source, "brave")
+        return true
+
+    if processName = "opera" && InStr(source, "opera")
+        return true
+
+    if processName = "firefox" && InStr(source, "firefox")
+        return true
+
+    return false
+}
+
+NormalizeAppName(name)
+{
+    name := StrLower(name)
+    name := StrReplace(name, ".exe", "")
+    return RegExReplace(name, "[^a-z0-9]", "")
+}
+
+IsAudioOnlyApp(name)
+{
+    audioApps := [
+        "spotify",
+        "deezer",
+        "tidal",
+        "itunes",
+        "musicbee",
+        "foobar2000",
+        "winamp"
+    ]
+
+    for app in audioApps {
+        if InStr(name, app)
+            return true
+    }
+
+    return false
+}
+
+
+; ============================================================
+; MEDIA.ahk - integre directement pour eviter un second fichier
+; ============================================================
+
 /**
  * Implements UWP Media Control, allowing access and control of the playing media (but not any media,
  * only UWP ones that are notified by a tray tip with the play-pause buttons and playing song title).

@@ -127,7 +127,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .esourcesagent-done.ps1
 
 ## Script facultatif pour deux écrans
 
-Le script facultatif [SwitchDualWindow.ahk](Script_Hotkey/SwitchDualWindow.ahk) associe la touche située sous `Échap` (`²` en AZERTY, `` ` `` en QWERTY) à l’échange des deux fenêtres au premier plan entre l’écran 1 et l’écran 2, chacune étant redimensionnée à la zone de travail de son nouvel écran puis maximisée, le focus revenant ensuite à la fenêtre qui arrive sur l’écran principal. Il est totalement indépendant de VSignal, n’est pas inclus dans le VSIX et demande uniquement [AutoHotkey v2](https://www.autohotkey.com/).
+Le script facultatif [ShortcutsAddict.ahk](Script_Hotkey/ShortcutsAddict.ahk) associe la touche située sous `Échap` (`²` en AZERTY, `` ` `` en QWERTY) à l’échange des deux fenêtres au premier plan entre les deux écrans, et transforme `Verr. Maj` en touche de raccourcis pour lancer des applications ou piloter le son et la lecture. Il est totalement indépendant de VSignal, n’est pas inclus dans le VSIX et demande uniquement [AutoHotkey v2](https://www.autohotkey.com/) ; la liste complète des raccourcis est dans [SHORTCUTS.md](Script_Hotkey/SHORTCUTS.md).
 
 ## Fichiers et confidentialité
 
