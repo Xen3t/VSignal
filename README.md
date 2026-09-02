@@ -13,8 +13,8 @@ VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex 
 - Popup WPF toujours visible, centrée en bas de l’écran : pastille d’état colorée, titre, sous-titre explicatif et ligne de vie indiquant le temps restant avant fermeture.
 - Le survol met la fermeture en pause et la relance à zéro ; un clic ferme la popup immédiatement.
 - Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés, chaque état ayant sa couleur.
-- Barres de quota `5 h` et `7 j` avec pourcentage restant et temps avant réinitialisation, en vert, orange ou rouge selon ce qu’il reste.
-- Panneau VS Code dédié : interrupteur général, état des intégrations, quotas des deux modèles et choix des quotas affichés dans les popups.
+- Barres de quota `5 h` et `7 j` avec pourcentage consommé et temps avant réinitialisation, comme `/usage` de Claude Code : la barre se remplit et passe à l’orange puis au rouge à mesure que la limite approche.
+- Panneau VS Code dédié : interrupteur général, quotas des deux modèles et choix des quotas affichés dans les popups.
 - Configuration automatique à chaque démarrage de VS Code, quel que soit le projet ouvert.
 - Aucun serveur VSignal, aucune télémétrie et aucune notification Windows native.
 
@@ -54,10 +54,11 @@ Installez ensuite le fichier `vsignal-*.vsix` produit à la racine du projet.
 Le panneau VSignal, dans la barre d’activité, regroupe tout :
 
 - **Popups** — l’interrupteur général, qui coupe ou rallume toutes les notifications.
-- **Intégrations** — l’état des hooks Claude et Codex, avec un lien de réparation quand l’un manque.
-- **Quotas restants** — les fenêtres `5 h` et `7 j` des deux modèles, toujours affichées ici en entier.
+- **Quotas consommés** — les fenêtres `5 h` et `7 j` des deux modèles, toujours affichées ici en entier.
 - **Quotas affichés dans les popups** — quatre interrupteurs indépendants pour choisir ce qui apparaît dans la popup.
 - **Actions** — tester chaque modèle, actualiser les quotas, réparer ou retirer les hooks.
+
+Les hooks étant réinstallés et réparés à chaque démarrage de VS Code, le panneau ne consacre pas de place à leur état. Pour le vérifier ponctuellement, `VSignal: Afficher l’état` récapitule le script, les hooks Claude et le hook Codex.
 
 Les mêmes actions restent disponibles dans la palette de commandes :
 

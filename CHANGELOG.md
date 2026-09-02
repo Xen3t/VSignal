@@ -2,6 +2,14 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.1.2 — 2026-09-03
+
+- Correction majeure : les quotas Claude étaient figés. Ils venaient d’un cache alimenté par le hook `statusLine`, qui ne s’exécute jamais dans l’extension VS Code — les chiffres affichés dataient de la dernière session en terminal. VSignal lit désormais `~/.claude.json`, que Claude Code tient à jour lui-même.
+- Ce fichier ne peut pas être parsé en entier par PowerShell 5.1 (des chemins de projet n’y diffèrent que par la casse, ce qui déclenche une erreur de clés en double) : seul le bloc `cachedUsageUtilization` est extrait.
+- Les barres affichent maintenant le quota **consommé** et non le restant, comme `/usage` de Claude Code. Les seuils de couleur suivent : orange à partir de 60 %, rouge à partir de 80 %.
+- Correction du champ `utilization`, qui est déjà un pourcentage et était multiplié par cent.
+- La section « Intégrations » disparaît du panneau : `autoConfigure` réparant les hooks à chaque démarrage, elle restait verte en permanence. Le diagnostic reste disponible via `VSignal: Afficher l’état`.
+
 ## 1.1.1 — 2026-09-03
 
 - Correction : le panneau annonçait « Claude : à configurer » alors que le hook était bien installé. La détection lisait le texte brut de `settings.json`, où les antislashs des chemins Windows sont échappés, et ne pouvait donc jamais correspondre.

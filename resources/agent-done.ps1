@@ -57,7 +57,7 @@ function Format-QuotaText {
     foreach ($limit in @($Primary, $Secondary)) {
         if ($null -eq $limit -or $null -eq $limit.usedPercent) { continue }
 
-        $remaining = [Math]::Max(0, [Math]::Round(100 - [double]$limit.usedPercent))
+        $used = [Math]::Min(100, [Math]::Max(0, [Math]::Round([double]$limit.usedPercent)))
         $minutes = [int]$limit.windowDurationMins
         $window = if ($minutes -eq 300) {
             '5 h'
@@ -92,11 +92,11 @@ function Format-QuotaText {
             $resetSuffix = ' reset {0}' -f $resetIn
         }
 
-        $parts += '{0} {1} %{2}' -f $window, $remaining, $resetSuffix
+        $parts += '{0} {1} %{2}' -f $window, $used, $resetSuffix
     }
 
     if ($parts.Count -eq 0) { return '' }
-    return 'Restant : ' + ($parts -join '  |  ')
+    return 'Quota : ' + ($parts -join '  |  ')
 }
 
 function Wait-AppServerResponse {
@@ -171,25 +171,124 @@ function Get-CodexQuotaText {
     }
 }
 
+# Convertit une fenetre de ~/.claude.json en objet attendu par Format-QuotaText.
+# Le champ 'utilization' y est un pourcentage consomme de 0 a 100.
+function ConvertTo-QuotaWindow {
+    param($Window, [int]$DurationMins)
+
+    if ($null -eq $Window -or $null -eq $Window.utilization) { return $null }
+
+    $resetsAt = $null
+    if ($Window.resets_at) {
+        try {
+            $resetsAt = [DateTimeOffset]::Parse(
+                [string]$Window.resets_at,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::RoundtripKind
+            ).ToUnixTimeSeconds()
+        } catch {}
+    }
+
+    return [pscustomobject]@{
+        usedPercent = [double]$Window.utilization
+        windowDurationMins = $DurationMins
+        resetsAt = $resetsAt
+    }
+}
+
+# Claude Code tient ses compteurs a jour dans ~/.claude.json. On lit cette
+# source en priorite : la statusline, elle, ne s'execute pas dans l'extension
+# VS Code, ce qui laissait le cache fige pendant des heures.
+# ~/.claude.json ne peut pas etre parse en entier : il contient des chemins de
+# projet qui ne different que par la casse, et ConvertFrom-Json de PowerShell
+# 5.1 rejette le document entier pour cause de cles en double. On decoupe donc
+# le seul objet utile en suivant l'imbrication des accolades.
+function Get-JsonObjectFragment {
+    param([string]$Text, [string]$Key)
+
+    $marker = '"{0}"' -f $Key
+    $start = $Text.IndexOf($marker)
+    if ($start -lt 0) { return '' }
+
+    $open = $Text.IndexOf('{', $start + $marker.Length)
+    if ($open -lt 0) { return '' }
+
+    $depth = 0
+    $inString = $false
+    $escaped = $false
+
+    for ($index = $open; $index -lt $Text.Length; $index++) {
+        $char = $Text[$index]
+
+        if ($escaped) { $escaped = $false; continue }
+        if ($inString -and $char -eq '\') { $escaped = $true; continue }
+        if ($char -eq '"') { $inString = -not $inString; continue }
+        if ($inString) { continue }
+
+        if ($char -eq '{') {
+            $depth++
+        } elseif ($char -eq '}') {
+            $depth--
+            if ($depth -eq 0) { return $Text.Substring($open, $index - $open + 1) }
+        }
+    }
+
+    return ''
+}
+
+function Get-ClaudeLiveQuota {
+    $path = Join-Path $env:USERPROFILE '.claude.json'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+
+    try {
+        $raw = Get-Content -Raw -LiteralPath $path
+        $fragment = Get-JsonObjectFragment -Text $raw -Key 'cachedUsageUtilization'
+        if (-not $fragment) { return $null }
+
+        $usage = ($fragment | ConvertFrom-Json).utilization
+        if ($null -eq $usage) { return $null }
+
+        return [pscustomobject]@{
+            Primary = ConvertTo-QuotaWindow -Window $usage.five_hour -DurationMins 300
+            Secondary = ConvertTo-QuotaWindow -Window $usage.seven_day -DurationMins 10080
+        }
+    } catch {
+        return $null
+    }
+}
+
+# Repli : le cache alimente par la statusline, quand elle tourne.
+function Get-ClaudeCachedQuota {
+    $path = Join-Path $PSScriptRoot 'claude-quota.json'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+
+    try {
+        $cache = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+        return [pscustomobject]@{
+            Primary = if ($null -ne $cache.fiveHourUsed -and [long]$cache.fiveHourResetsAt -gt $now) {
+                [pscustomobject]@{ usedPercent = $cache.fiveHourUsed; windowDurationMins = 300; resetsAt = $cache.fiveHourResetsAt }
+            } else { $null }
+            Secondary = if ($null -ne $cache.sevenDayUsed -and [long]$cache.sevenDayResetsAt -gt $now) {
+                [pscustomobject]@{ usedPercent = $cache.sevenDayUsed; windowDurationMins = 10080; resetsAt = $cache.sevenDayResetsAt }
+            } else { $null }
+        }
+    } catch {
+        return $null
+    }
+}
+
 function Get-ClaudeQuotaText {
     param([switch]$ApplyPreference)
 
-    $cachePath = Join-Path $PSScriptRoot 'claude-quota.json'
-    if (-not (Test-Path -LiteralPath $cachePath)) { return '' }
-
-    try {
-        $cache = Get-Content -Raw -LiteralPath $cachePath | ConvertFrom-Json
-        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $primary = if ($null -ne $cache.fiveHourUsed -and [long]$cache.fiveHourResetsAt -gt $now) {
-            [pscustomobject]@{ usedPercent = $cache.fiveHourUsed; windowDurationMins = 300; resetsAt = $cache.fiveHourResetsAt }
-        } else { $null }
-        $secondary = if ($null -ne $cache.sevenDayUsed -and [long]$cache.sevenDayResetsAt -gt $now) {
-            [pscustomobject]@{ usedPercent = $cache.sevenDayUsed; windowDurationMins = 10080; resetsAt = $cache.sevenDayResetsAt }
-        } else { $null }
-        return Format-QuotaText -Primary $primary -Secondary $secondary -ForAgent 'Claude' -ApplyPreference:$ApplyPreference
-    } catch {
-        return ''
+    $quota = Get-ClaudeLiveQuota
+    if ($null -eq $quota -or ($null -eq $quota.Primary -and $null -eq $quota.Secondary)) {
+        $quota = Get-ClaudeCachedQuota
     }
+    if ($null -eq $quota) { return '' }
+
+    return Format-QuotaText -Primary $quota.Primary -Secondary $quota.Secondary -ForAgent 'Claude' -ApplyPreference:$ApplyPreference
 }
 
 if ($CacheClaudeQuota) {
@@ -207,12 +306,12 @@ if ($CacheClaudeQuota) {
             $fiveHourUsed = if ($null -ne $rateLimits.five_hour.used_percentage) {
                 [double]$rateLimits.five_hour.used_percentage
             } elseif ($null -ne $rateLimits.five_hour.utilization) {
-                100 * [double]$rateLimits.five_hour.utilization
+                [double]$rateLimits.five_hour.utilization
             } else { $null }
             $sevenDayUsed = if ($null -ne $rateLimits.seven_day.used_percentage) {
                 [double]$rateLimits.seven_day.used_percentage
             } elseif ($null -ne $rateLimits.seven_day.utilization) {
-                100 * [double]$rateLimits.seven_day.utilization
+                [double]$rateLimits.seven_day.utilization
             } else { $null }
             [ordered]@{
                 fiveHourUsed = $fiveHourUsed
@@ -502,7 +601,8 @@ if ($QuotaText) {
         $separator.Margin = [System.Windows.Thickness]::new(0, 15, 0, 13)
         $null = $root.Children.Add($separator)
 
-        $caption = New-Label -Content 'QUOTA RESTANT' -Size 9.5 -Hex $mutedInk -SemiBold
+        $captionText = 'QUOTA CONSOMM{0}' -f ([char]0x00C9)
+        $caption = New-Label -Content $captionText -Size 9.5 -Hex $mutedInk -SemiBold
         $caption.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
         $caption.Margin = [System.Windows.Thickness]::new(1, 0, 0, 8)
         $null = $root.Children.Add($caption)
@@ -522,7 +622,7 @@ if ($QuotaText) {
 
             $percent = [Math]::Min(100, [Math]::Max(0, [int]$entry.Groups[2].Value))
             $resetIn = $entry.Groups[3].Value.Trim()
-            $barTone = if ($percent -lt 20) { '#F27059' } elseif ($percent -le 40) { '#F5B75A' } else { $agentAccent }
+            $barTone = if ($percent -ge 80) { '#F27059' } elseif ($percent -ge 60) { '#F5B75A' } else { $agentAccent }
 
             $windowLabel = New-Label -Content $entry.Groups[1].Value -Size 11 -Hex $bodyInk
             $windowLabel.MinWidth = 30

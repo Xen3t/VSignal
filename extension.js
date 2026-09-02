@@ -529,24 +529,11 @@ body {
   background: var(--vscode-descriptionForeground);
 }
 
-.dot.ok { background: var(--vsignal-ok); }
-.dot.todo { background: var(--vsignal-warn); }
 .dot.claude { background: var(--vsignal-claude); }
 .dot.codex { background: var(--vsignal-codex); }
 
 .muted { color: var(--vscode-descriptionForeground); font-size: 11.5px; }
 
-.linky {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 11.5px;
-  color: var(--vscode-textLink-foreground);
-  cursor: pointer;
-}
-
-.linky:hover { text-decoration: underline; }
 
 .toggle {
   position: relative;
@@ -696,8 +683,8 @@ function toggle(checked, onChange) {
 }
 
 function barColor(percent, agent) {
-  if (percent < 20) return 'var(--vsignal-alert)';
-  if (percent <= 40) return 'var(--vsignal-warn)';
+  if (percent >= 80) return 'var(--vsignal-alert)';
+  if (percent >= 60) return 'var(--vsignal-warn)';
   return agent === 'Codex' ? 'var(--vsignal-codex)' : 'var(--vsignal-claude)';
 }
 
@@ -713,28 +700,6 @@ function renderStatus(state) {
   label.appendChild(el('div', 'muted', state.enabled ? 'Claude et Codex te préviennent' : 'Aucune popup ne sera affichée'));
   master.appendChild(label);
   master.appendChild(toggle(state.enabled, () => send({ type: 'command', command: 'vsignal.toggle' })));
-
-  const hooks = document.getElementById('hooks');
-  hooks.innerHTML = '';
-  for (const item of [
-    { name: 'Claude', ready: state.claudeReady },
-    { name: 'Codex', ready: state.codexReady }
-  ]) {
-    const row = el('div', 'row');
-    const name = el('div', 'name');
-    name.appendChild(el('span', 'dot ' + (item.ready ? 'ok' : 'todo')));
-    name.appendChild(el('span', null, item.name));
-    row.appendChild(name);
-    if (item.ready) {
-      row.appendChild(el('span', 'muted', 'Prêt'));
-    } else {
-      const fix = el('button', 'linky', 'Configurer');
-      fix.type = 'button';
-      fix.addEventListener('click', () => send({ type: 'command', command: 'vsignal.setup' }));
-      row.appendChild(fix);
-    }
-    hooks.appendChild(row);
-  }
 
   const prefs = document.getElementById('prefs');
   prefs.innerHTML = '';
@@ -870,8 +835,6 @@ class ControlPanelProvider {
     this.post({
       type: 'state',
       enabled: isEnabled(),
-      claudeReady: hasClaudeHook(),
-      codexReady: hasCodexHook(),
       prefs: POPUP_PREFERENCES.map(pref => ({
         key: pref.key,
         label: pref.label,
@@ -916,9 +879,7 @@ class ControlPanelProvider {
       '<span id="status-pill" class="pill off">…</span>',
       '</div>',
       '<div class="card" id="master-card"><div class="master" id="master"></div></div>',
-      '<div class="section">Intégrations</div>',
-      '<div class="card flush" id="hooks"></div>',
-      '<div class="section">Quotas restants</div>',
+      '<div class="section">Quotas consommés</div>',
       '<div class="card" id="quotas"></div>',
       '<div class="section">Quotas affichés dans les popups</div>',
       '<div class="card flush" id="prefs"></div>',
