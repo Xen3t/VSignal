@@ -38,7 +38,7 @@ const POPUP_PREFERENCES = [
 const SETTING_GROUPS = [
   // L'interrupteur general n'a pas a occuper le haut du panneau : on l'ouvre
   // rarement, et il n'apprend rien tant que tout va bien.
-  { caption: 'Général', items: [{ key: 'enabled', label: 'Activer les notifications' }] },
+  { caption: 'Général', items: [{ key: 'enabled', label: 'Notifications' }] },
   { caption: 'Quotas affichés dans les popups', items: POPUP_PREFERENCES },
   // Regroupees par modele : le libelle reste court, donc lisible en colonne
   // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
@@ -541,7 +541,7 @@ function createNonce() {
 const PANEL_STYLE = `
 :root {
   --vsignal-claude: #d97757;
-  --vsignal-codex: #10a37f;
+  --vsignal-codex: #000000;
   --vsignal-ok: #3fb950;
   --vsignal-warn: #d29922;
   --vsignal-alert: #f85149;
@@ -742,16 +742,26 @@ body {
 
 .row .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+/* Le fournisseur se lit sur une pastille a ses couleurs plutot que sur un
+   point de sept pixels que rien n'explique. */
+.badge {
   flex: none;
-  background: var(--vscode-descriptionForeground);
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: #ffffff;
+  border: 1px solid transparent;
 }
 
-.dot.claude { background: var(--vsignal-claude); }
-.dot.codex { background: var(--vsignal-codex); }
+.badge.claude { background: var(--vsignal-claude); }
+
+/* Le noir d'OpenAI a besoin d'un filet pour exister sur fond sombre. */
+.badge.codex {
+  background: var(--vsignal-codex);
+  border-color: rgba(255, 255, 255, 0.28);
+}
 
 .muted { color: var(--vscode-descriptionForeground); font-size: 11.5px; }
 
@@ -799,9 +809,13 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11.5px;
-  font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 9px;
+}
+
+.freshness {
+  margin-top: 11px;
+  font-size: 10.5px;
+  color: var(--vscode-descriptionForeground);
 }
 
 .quota-line + .quota-line { margin-top: 9px; }
@@ -960,7 +974,6 @@ function renderStatus(state) {
     for (const item of group.items) {
       const row = el('div', 'row');
       const name = el('div', 'name');
-      if (item.agent) name.appendChild(el('span', 'dot ' + item.agent.toLowerCase()));
       name.appendChild(el('span', null, item.label));
       row.appendChild(name);
       row.appendChild(toggle(item.value, value => send({ type: 'pref', key: item.key, value })));
@@ -989,11 +1002,12 @@ function renderQuotas(payload) {
     return;
   }
 
+  lastQuotaAt = payload.at || lastQuotaAt;
+
   for (const entry of payload.agents) {
     const block = el('div', 'quota-agent');
     const head = el('div', 'quota-head');
-    head.appendChild(el('span', 'dot ' + entry.agent.toLowerCase()));
-    head.appendChild(el('span', null, entry.agent));
+    head.appendChild(el('span', 'badge ' + entry.agent.toLowerCase(), entry.agent));
     block.appendChild(head);
 
     if (!entry.values.length) {
@@ -1033,7 +1047,33 @@ function renderQuotas(payload) {
 
     host.appendChild(block);
   }
+
+  host.appendChild(freshnessLine());
 }
+
+// Sans repere, rien ne distingue un panneau a jour d'un panneau fige.
+let lastQuotaAt = 0;
+
+function freshnessLine() {
+  const line = el('div', 'freshness');
+  line.id = 'freshness';
+  line.textContent = freshnessText();
+  return line;
+}
+
+function freshnessText() {
+  if (!lastQuotaAt) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - lastQuotaAt) / 1000));
+  if (seconds < 45) return 'Actualisé à l’instant';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return 'Actualisé il y a ' + minutes + ' min';
+  return 'Actualisé il y a ' + Math.round(minutes / 60) + ' h';
+}
+
+setInterval(() => {
+  const line = document.getElementById('freshness');
+  if (line) line.textContent = freshnessText();
+}, 10000);
 
 window.addEventListener('message', event => {
   const message = event.data;
@@ -1072,13 +1112,25 @@ class ControlPanelProvider {
     this.view = undefined;
     this.quotaToken = 0;
     this.autoRefresh = undefined;
+    this.values = { Claude: null, Codex: null };
+    this.codexReadAt = 0;
+    this.throttledAt = 0;
   }
 
-  // Les quotas ne bougent pas d'une seconde a l'autre : un tour toutes les
-  // cinq minutes suffit, et seulement quand le panneau est sous les yeux.
+  // Lire Claude ne coute qu'un acces fichier, on le fait souvent. Lire Codex
+  // demarre un app-server et prend plusieurs secondes : on l'espace.
   startAutoRefresh() {
     this.stopAutoRefresh();
-    this.autoRefresh = setInterval(() => this.refresh(), 5 * 60 * 1000);
+    this.autoRefresh = setInterval(() => this.refresh(), 30 * 1000);
+  }
+
+  // Pour les declencheurs subis — fichier modifie, fenetre reprenant le focus
+  // — afin qu'une rafale ne se traduise pas par une rafale de lectures.
+  refreshThrottled() {
+    const now = Date.now();
+    if (now - this.throttledAt < 20 * 1000) return;
+    this.throttledAt = now;
+    this.refresh();
   }
 
   stopAutoRefresh() {
@@ -1139,7 +1191,7 @@ class ControlPanelProvider {
     if (this.view) void this.view.webview.postMessage(payload);
   }
 
-  refresh() {
+  refresh(force = false) {
     if (!this.view) return;
 
     const config = vscode.workspace.getConfiguration('vsignal');
@@ -1158,25 +1210,43 @@ class ControlPanelProvider {
       }))
     });
 
-    void this.loadQuotas();
+    void this.loadQuotas(force);
   }
 
-  async loadQuotas() {
-    const token = ++this.quotaToken;
-    this.post({ type: 'quotas', loading: true });
-
-    // Le panneau montre toujours les quatre fenetres, meme celles masquees dans les popups.
-    const [claude, codex] = await Promise.all([readQuota('Claude'), readQuota('Codex')]);
-    if (token !== this.quotaToken) return;
-
+  postQuotas(loading) {
     this.post({
       type: 'quotas',
-      loading: false,
+      loading: Boolean(loading),
+      at: Date.now(),
+      // Le panneau montre toujours les quatre fenetres, meme celles masquees
+      // dans les popups.
       agents: [
-        { agent: 'Claude', values: parseQuota(claude) },
-        { agent: 'Codex', values: parseQuota(codex) }
+        { agent: 'Claude', values: this.values.Claude || [] },
+        { agent: 'Codex', values: this.values.Codex || [] }
       ]
     });
+  }
+
+  async loadQuotas(force = false) {
+    const token = ++this.quotaToken;
+    const first = !this.values.Claude && !this.values.Codex;
+    if (first) this.post({ type: 'quotas', loading: true });
+    else this.postQuotas(true);
+
+    this.values.Claude = parseQuota(await readQuota('Claude'));
+    if (token !== this.quotaToken) return;
+
+    const codexDue = force || !this.values.Codex || Date.now() - this.codexReadAt > 3 * 60 * 1000;
+    if (!codexDue) {
+      this.postQuotas(false);
+      return;
+    }
+
+    this.postQuotas(true);
+    this.values.Codex = parseQuota(await readQuota('Codex'));
+    if (token !== this.quotaToken) return;
+    this.codexReadAt = Date.now();
+    this.postQuotas(false);
   }
 
   render(webview) {
@@ -1235,7 +1305,7 @@ function activate(context) {
       webviewOptions: { retainContextWhenHidden: true }
     }),
     vscode.commands.registerCommand('vsignal.toggle', toggleEnabled),
-    vscode.commands.registerCommand('vsignal.refreshQuotas', () => controlPanelProvider.refresh()),
+    vscode.commands.registerCommand('vsignal.refreshQuotas', () => controlPanelProvider.refresh(true)),
     vscode.commands.registerCommand('vsignal.setup', () => setup(context, true)),
     vscode.commands.registerCommand('vsignal.testClaude', () => runTest(context, 'Claude')),
     vscode.commands.registerCommand('vsignal.testCodex', () => runTest(context, 'Codex')),
@@ -1260,7 +1330,24 @@ function activate(context) {
   );
 
   // La surveillance tourne meme panneau ferme : c'est tout son interet.
-  const quotaWatch = setInterval(() => void checkQuotaEvents(context), 15 * 60 * 1000);
+  // Claude Code reecrit ~/.claude.json des qu'il rafraichit ses compteurs :
+  // c'est un signal bien plus rapide que d'attendre le prochain tour d'horloge.
+  // watchFile sonde l'horodatage plutot que de suivre le descripteur, ce qui
+  // survit aux ecritures par fichier temporaire suivies d'un renommage.
+  const claudeState = path.join(os.homedir(), '.claude.json');
+  fs.watchFile(claudeState, { interval: 5000 }, (current, previous) => {
+    if (current.mtimeMs === previous.mtimeMs) return;
+    if (controlPanelProvider) controlPanelProvider.refreshThrottled();
+  });
+  context.subscriptions.push({ dispose: () => fs.unwatchFile(claudeState) });
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState(windowState => {
+      if (windowState.focused && controlPanelProvider) controlPanelProvider.refreshThrottled();
+    })
+  );
+
+  const quotaWatch = setInterval(() => void checkQuotaEvents(context), 5 * 60 * 1000);
   context.subscriptions.push(
     controlPanelProvider,
     { dispose: () => clearInterval(quotaWatch) }

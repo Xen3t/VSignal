@@ -645,14 +645,8 @@ if ($QuotaText) {
         $separator = [System.Windows.Controls.Border]::new()
         $separator.Height = 1
         $separator.Background = New-Brush $hairline 0.1
-        $separator.Margin = [System.Windows.Thickness]::new(0, 15, 0, 13)
+        $separator.Margin = [System.Windows.Thickness]::new(0, 15, 0, 11)
         $null = $root.Children.Add($separator)
-
-        $captionText = 'QUOTA CONSOMM{0}' -f ([char]0x00C9)
-        $caption = New-Label -Content $captionText -Size 9.5 -Hex $mutedInk -SemiBold
-        $caption.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-        $caption.Margin = [System.Windows.Thickness]::new(1, 0, 0, 8)
-        $null = $root.Children.Add($caption)
 
         $grid = [System.Windows.Controls.Grid]::new()
         foreach ($index in 0..3) {

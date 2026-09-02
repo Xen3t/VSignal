@@ -55,8 +55,8 @@ Installez ensuite le fichier `vsignal-*.vsix` produit à la racine du projet.
 
 Le panneau VSignal, dans la barre d’activité, regroupe tout :
 
-- **Les quotas** occupent le haut du panneau, sans titre ni repli : les fenêtres `5 h` et `7 j` des deux modèles y sont toujours affichées en entier. Le bouton d’actualisation se tient dans leur coin haut droit et tourne pendant la lecture.
-- **Paramètres** — `Activer les notifications` sous « Général », ce que les popups affichent, et les alertes modèle par modèle.
+- **Les quotas** occupent le haut du panneau, sans titre ni repli : les fenêtres `5 h` et `7 j` des deux modèles y sont toujours affichées en entier, chacune sous une pastille aux couleurs de son fournisseur. Le bouton d’actualisation se tient dans leur coin haut droit et tourne pendant la lecture.
+- **Paramètres** — `Notifications` sous « Général », ce que les popups affichent, et les alertes modèle par modèle.
 - **Actions** — tester chaque modèle, réparer ou retirer les hooks.
 
 `Paramètres` et `Actions` se replient d’un clic sur leur titre, et l’état est mémorisé : le panneau peut se réduire aux seuls quotas sans que les réglages deviennent inaccessibles.
@@ -76,14 +76,20 @@ Les mêmes actions restent disponibles dans la palette de commandes :
 
 ### Quand les quotas sont-ils actualisés ?
 
-Les quotas Claude viennent de `~/.claude.json`, que Claude Code met à jour de son côté ; ceux de Codex sont demandés à `codex app-server`. VSignal les relit :
+Les deux sources n’ont pas le même prix. Le quota Claude se lit dans `~/.claude.json`, que Claude Code tient à jour : c’est un simple accès fichier. Le quota Codex demande de démarrer un `codex app-server` et prend plusieurs secondes. Les cadences sont donc distinctes.
 
-- à l’ouverture du panneau ;
-- toutes les cinq minutes tant que le panneau reste visible ;
-- sur `Actualiser les quotas`, dans le panneau ou dans la barre de titre de la vue ;
-- juste avant chaque popup, pour que les barres qu’elle affiche soient à jour.
+| Déclencheur | Claude | Codex |
+| --- | --- | --- |
+| Ouverture du panneau | oui | oui |
+| Panneau visible | toutes les 30 s | au plus toutes les 3 min |
+| `~/.claude.json` modifié | oui, au plus toutes les 20 s | non |
+| Fenêtre VS Code reprenant le focus | oui, au plus toutes les 20 s | non |
+| Bouton d’actualisation | oui | oui, forcé |
+| Avant chaque popup | oui | oui |
 
-Le panneau fermé, rien n’est relu : seule la surveillance des quotas continue, toutes les quinze minutes.
+Le fichier `~/.claude.json` est surveillé par sondage de son horodatage, ce qui résiste aux écritures par fichier temporaire suivies d’un renommage. Panneau fermé, seule la surveillance des alertes continue, toutes les cinq minutes.
+
+Une ligne `Actualisé il y a…` sous les quotas indique quand la dernière lecture a eu lieu : un panneau figé se voit immédiatement.
 
 ### Alertes de quota
 

@@ -2,6 +2,16 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.5.0 — 2026-09-03
+
+- Actualisation nettement plus soutenue, et à cadence adaptée au coût de chaque source : Claude toutes les 30 s panneau ouvert, Codex au plus toutes les 3 minutes puisque sa lecture démarre un `app-server`.
+- Deux déclencheurs s’ajoutent à l’horloge : toute modification de `~/.claude.json` et le retour du focus sur la fenêtre VS Code, l’un comme l’autre limités à une lecture toutes les 20 s.
+- La surveillance des alertes passe de quinze à cinq minutes.
+- Une ligne `Actualisé il y a…` sous les quotas rend l’actualisation vérifiable au lieu d’être à croire sur parole.
+- Le fournisseur s’affiche sur une pastille à ses couleurs — corail pour Claude, noir pour Codex, comme leurs marques — au lieu d’un point de sept pixels. Les points disparaissent aussi des réglages, dont les libellés nomment déjà le modèle.
+- La popup n’affiche plus le titre « Quota consommé » : les barres se suffisent.
+- L’interrupteur général s’appelle simplement `Notifications`.
+
 ## 1.4.1 — 2026-09-03
 
 - Suppression de l’action dans la barre de titre de la vue : elle n’ajoutait rien, `Configurer / réparer les hooks` restant disponible dans « Actions » et dans la palette de commandes.
