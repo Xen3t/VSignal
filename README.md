@@ -87,7 +87,7 @@ Les deux sources n’ont pas le même prix. Le quota Claude se lit dans `~/.clau
 | Bouton d’actualisation | oui | oui, forcé |
 | Avant chaque popup | oui | oui |
 
-Le fichier `~/.claude.json` est surveillé par sondage de son horodatage, ce qui résiste aux écritures par fichier temporaire suivies d’un renommage. Panneau fermé, seule la surveillance des alertes continue, toutes les cinq minutes.
+Le fichier `~/.claude.json` est surveillé par sondage de son horodatage, ce qui résiste aux écritures par fichier temporaire suivies d’un renommage. La surveillance des alertes suit le même raisonnement : toutes les cinq minutes tant que le panneau est ouvert, puis toutes les quinze minutes une fois fermé, chaque tour démarrant sinon un `codex app-server` pour un événement qui survient quelques fois par jour.
 
 Une ligne `Actualisé il y a…` sous les quotas indique quand la dernière lecture a eu lieu : un panneau figé se voit immédiatement.
 

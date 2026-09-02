@@ -2,6 +2,10 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.5.1 — 2026-09-03
+
+- La surveillance des alertes s’adapte : toutes les cinq minutes quand le panneau est ouvert, puisque les quotas y sont déjà relus en continu, et toutes les quinze minutes une fois le panneau fermé, où chaque tour démarre un `codex app-server` pour un événement qui survient quelques fois par jour.
+
 ## 1.5.0 — 2026-09-03
 
 - Actualisation nettement plus soutenue, et à cadence adaptée au coût de chaque source : Claude toutes les 30 s panneau ouvert, Codex au plus toutes les 3 minutes puisque sa lecture démarre un `app-server`.

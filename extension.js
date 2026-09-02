@@ -1133,6 +1133,10 @@ class ControlPanelProvider {
     this.refresh();
   }
 
+  isVisible() {
+    return Boolean(this.view && this.view.visible);
+  }
+
   stopAutoRefresh() {
     if (!this.autoRefresh) return;
     clearInterval(this.autoRefresh);
@@ -1347,12 +1351,26 @@ function activate(context) {
     })
   );
 
-  const quotaWatch = setInterval(() => void checkQuotaEvents(context), 5 * 60 * 1000);
+  // Panneau ouvert, les quotas sont deja relus en continu : la surveillance
+  // suit le meme rythme sans rien couter de plus. Panneau ferme, chaque tour
+  // demarre un codex app-server pour un evenement qui survient quelques fois
+  // par jour : on espace.
+  let quotaWatch;
+  const scheduleQuotaWatch = () => {
+    const minutes = controlPanelProvider && controlPanelProvider.isVisible() ? 5 : 15;
+    quotaWatch = setTimeout(async () => {
+      await checkQuotaEvents(context);
+      scheduleQuotaWatch();
+    }, minutes * 60 * 1000);
+  };
+
   context.subscriptions.push(
     controlPanelProvider,
-    { dispose: () => clearInterval(quotaWatch) }
+    { dispose: () => clearTimeout(quotaWatch) }
   );
+
   void checkQuotaEvents(context);
+  scheduleQuotaWatch();
 
   if (vscode.workspace.getConfiguration('vsignal').get('autoConfigure', true)) {
     void setup(context, false);
