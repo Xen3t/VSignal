@@ -2,6 +2,10 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.6.1 — 2026-09-03
+
+- Le titre des popups passe de 16,5 à 21 px, le sous-titre de 11,5 à 12,5. La pastille du modèle et son logo grandissent en proportion pour ne pas paraître rabougris à côté.
+
 ## 1.6.0 — 2026-09-03
 
 - Les deux quotas sont relus **toutes les minutes** quand le panneau est ouvert, Codex compris. Les deux lectures partent ensemble et ne sont publiées qu’une fois toutes deux revenues.

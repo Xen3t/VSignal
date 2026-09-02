@@ -574,7 +574,7 @@ $card.BorderBrush = New-Brush $hairline 0.14
 $card.BorderThickness = [System.Windows.Thickness]::new(1)
 $card.CornerRadius = [System.Windows.CornerRadius]::new(18)
 $card.Padding = [System.Windows.Thickness]::new(20, 17, 22, 16)
-$card.MinWidth = 340
+$card.MinWidth = 370
 $card.RenderTransformOrigin = [System.Windows.Point]::new(1, 0)
 
 $scale = [System.Windows.Media.ScaleTransform]::new(0.96, 0.96)
@@ -604,28 +604,28 @@ foreach ($width in @([System.Windows.GridLength]::Auto, [System.Windows.GridLeng
 }
 
 $badge = [System.Windows.Controls.Border]::new()
-$badge.Width = 38
-$badge.Height = 38
-$badge.CornerRadius = [System.Windows.CornerRadius]::new(12)
+$badge.Width = 46
+$badge.Height = 46
+$badge.CornerRadius = [System.Windows.CornerRadius]::new(14)
 $badge.Background = New-Brush $toneNeutral 0.06
 $isAlert = $tone -ne $toneNeutral
 $badge.BorderBrush = if ($isAlert) { New-Brush $tone 0.5 } else { New-Brush $toneNeutral 0.12 }
 $badge.BorderThickness = [System.Windows.Thickness]::new(1)
 $badge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
 
-$badge.Child = New-AgentMark -Agent $Agent -Size 20 -Hex $agentMarkInk
+$badge.Child = New-AgentMark -Agent $Agent -Size 25 -Hex $agentMarkInk
 
 $headerText = [System.Windows.Controls.StackPanel]::new()
 $headerText.Orientation = [System.Windows.Controls.Orientation]::Vertical
 $headerText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-$headerText.Margin = [System.Windows.Thickness]::new(14, 0, 0, 0)
+$headerText.Margin = [System.Windows.Thickness]::new(16, 0, 0, 0)
 
-$title = New-Label -Content $stateInfo.Title -Size 16.5 -Hex $titleInk -SemiBold -Font $fontDisplay
+$title = New-Label -Content $stateInfo.Title -Size 21 -Hex $titleInk -SemiBold -Font $fontDisplay
 $title.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
 
-$subtitle = New-Label -Content $stateInfo.Detail -Size 11.5 -Hex $bodyInk
+$subtitle = New-Label -Content $stateInfo.Detail -Size 12.5 -Hex $bodyInk
 $subtitle.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-$subtitle.Margin = [System.Windows.Thickness]::new(0, 3, 0, 0)
+$subtitle.Margin = [System.Windows.Thickness]::new(0, 4, 0, 0)
 
 $null = $headerText.Children.Add($title)
 $null = $headerText.Children.Add($subtitle)
