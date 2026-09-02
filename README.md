@@ -10,11 +10,11 @@ VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex 
 
 ## Fonctionnalités
 
-- Popup WPF toujours visible, centrée en bas de l’écran et fermée automatiquement après environ 5 secondes.
-- Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés.
-- Style distinct pour Claude et Codex.
-- Barres de quota `5 h` et `7 j`, avec temps avant réinitialisation lorsque ces informations sont disponibles.
-- Activation, désactivation, tests et état des intégrations depuis la barre d’activité de VS Code.
+- Popup WPF toujours visible, centrée en bas de l’écran : pastille d’état colorée, titre, sous-titre explicatif et ligne de vie indiquant le temps restant avant fermeture.
+- Le survol met la fermeture en pause et la relance à zéro ; un clic ferme la popup immédiatement.
+- Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés, chaque état ayant sa couleur.
+- Barres de quota `5 h` et `7 j` avec pourcentage restant et temps avant réinitialisation, en vert, orange ou rouge selon ce qu’il reste.
+- Panneau VS Code dédié : interrupteur général, état des intégrations, quotas des deux modèles et choix des quotas affichés dans les popups.
 - Configuration automatique à chaque démarrage de VS Code, quel que soit le projet ouvert.
 - Aucun serveur VSignal, aucune télémétrie et aucune notification Windows native.
 
@@ -51,7 +51,15 @@ Installez ensuite le fichier `vsignal-*.vsix` produit à la racine du projet.
 
 ## Utilisation
 
-Le panneau VSignal permet d’activer ou désactiver toutes les popups, d’actualiser les quotas, de tester chaque modèle et de réparer les hooks. Les mêmes actions sont disponibles dans la palette de commandes :
+Le panneau VSignal, dans la barre d’activité, regroupe tout :
+
+- **Popups** — l’interrupteur général, qui coupe ou rallume toutes les notifications.
+- **Intégrations** — l’état des hooks Claude et Codex, avec un lien de réparation quand l’un manque.
+- **Quotas restants** — les fenêtres `5 h` et `7 j` des deux modèles, toujours affichées ici en entier.
+- **Quotas affichés dans les popups** — quatre interrupteurs indépendants pour choisir ce qui apparaît dans la popup.
+- **Actions** — tester chaque modèle, actualiser les quotas, réparer ou retirer les hooks.
+
+Les mêmes actions restent disponibles dans la palette de commandes :
 
 - `VSignal: Activer / désactiver`
 - `VSignal: Actualiser les quotas`
@@ -61,10 +69,23 @@ Le panneau VSignal permet d’activer ou désactiver toutes les popups, d’actu
 - `VSignal: Afficher l’état`
 - `VSignal: Retirer les hooks`
 
+### Choisir les quotas affichés dans les popups
+
+Une popup surchargée se lit mal. Les quatre réglages ci-dessous décident de ce qu’elle montre ; le panneau VSignal, lui, continue d’afficher les quatre fenêtres quoi qu’il arrive.
+
+| Réglage | Barre concernée |
+| --- | --- |
+| `vsignal.popup.claude.fiveHours` | Claude, fenêtre de 5 h |
+| `vsignal.popup.claude.weekly` | Claude, fenêtre de 7 j |
+| `vsignal.popup.codex.fiveHours` | Codex, fenêtre de 5 h |
+| `vsignal.popup.codex.weekly` | Codex, fenêtre de 7 j |
+
+Si les deux barres d’un modèle sont désactivées, sa popup se limite au message. Les valeurs sont recopiées dans `%USERPROFILE%.vsignalpopup.json`, que lit le script PowerShell.
+
 Pour tester directement le moteur de popup depuis le dépôt :
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\resources\agent-done.ps1 -Agent Codex -State Tested
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .esourcesagent-done.ps1 -Agent Codex -State Tested
 ```
 
 ## Script facultatif pour deux écrans

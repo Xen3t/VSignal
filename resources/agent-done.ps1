@@ -27,8 +27,30 @@ if (-not $Display -and -not $CacheClaudeQuota -and -not $PrintQuota -and (Test-P
     exit 0
 }
 
+function Get-PopupPreference {
+    $defaults = [ordered]@{ ClaudeShort = $true; ClaudeWeekly = $true; CodexShort = $true; CodexWeekly = $true }
+    $path = Join-Path $PSScriptRoot 'popup.json'
+    if (-not (Test-Path -LiteralPath $path)) { return $defaults }
+
+    try {
+        $stored = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+        foreach ($key in @($defaults.Keys)) {
+            if ($null -ne $stored.$key) { $defaults[$key] = [bool]$stored.$key }
+        }
+    } catch {}
+    return $defaults
+}
+
 function Format-QuotaText {
-    param($Primary, $Secondary)
+    param(
+        $Primary,
+        $Secondary,
+        [ValidateSet('', 'Claude', 'Codex')]
+        [string]$ForAgent = '',
+        [switch]$ApplyPreference
+    )
+
+    $preference = if ($ApplyPreference) { Get-PopupPreference } else { $null }
 
     $parts = @()
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -47,6 +69,11 @@ function Format-QuotaText {
             '{0} h' -f ($minutes / 60)
         } else {
             '{0} min' -f $minutes
+        }
+
+        if ($null -ne $preference) {
+            $field = '{0}{1}' -f $ForAgent, $(if ($minutes -ge 1440) { 'Weekly' } else { 'Short' })
+            if (-not $preference[$field]) { continue }
         }
 
         $resetSuffix = ''
@@ -94,6 +121,8 @@ function Wait-AppServerResponse {
 }
 
 function Get-CodexQuotaText {
+    param([switch]$ApplyPreference)
+
     $codexCommand = Get-Command codex.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     $codexPath = if ($codexCommand) { $codexCommand.Source } else { $null }
 
@@ -130,7 +159,7 @@ function Get-CodexQuotaText {
         $response = Wait-AppServerResponse -Process $process -Id 6 -TimeoutMilliseconds 4000
         if ($null -eq $response -or $response.error -or $null -eq $response.result.rateLimits) { return '' }
 
-        return Format-QuotaText -Primary $response.result.rateLimits.primary -Secondary $response.result.rateLimits.secondary
+        return Format-QuotaText -Primary $response.result.rateLimits.primary -Secondary $response.result.rateLimits.secondary -ForAgent 'Codex' -ApplyPreference:$ApplyPreference
     } catch {
         return ''
     } finally {
@@ -143,6 +172,8 @@ function Get-CodexQuotaText {
 }
 
 function Get-ClaudeQuotaText {
+    param([switch]$ApplyPreference)
+
     $cachePath = Join-Path $PSScriptRoot 'claude-quota.json'
     if (-not (Test-Path -LiteralPath $cachePath)) { return '' }
 
@@ -155,7 +186,7 @@ function Get-ClaudeQuotaText {
         $secondary = if ($null -ne $cache.sevenDayUsed -and [long]$cache.sevenDayResetsAt -gt $now) {
             [pscustomobject]@{ usedPercent = $cache.sevenDayUsed; windowDurationMins = 10080; resetsAt = $cache.sevenDayResetsAt }
         } else { $null }
-        return Format-QuotaText -Primary $primary -Secondary $secondary
+        return Format-QuotaText -Primary $primary -Secondary $secondary -ForAgent 'Claude' -ApplyPreference:$ApplyPreference
     } catch {
         return ''
     }
@@ -240,7 +271,8 @@ if (-not $Display) {
         }
     }
 
-    $QuotaText = if ($Agent -eq 'Codex') { Get-CodexQuotaText } else { Get-ClaudeQuotaText }
+    # Le panneau VS Code montre tout ; la popup ne montre que les fenetres cochees.
+    $QuotaText = if ($Agent -eq 'Codex') { Get-CodexQuotaText -ApplyPreference } else { Get-ClaudeQuotaText -ApplyPreference }
 
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $arguments = '-NoProfile -NonInteractive -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Agent "{1}" -State "{2}"' -f $PSCommandPath, $Agent, $State
@@ -250,8 +282,131 @@ if (-not $Display) {
     exit 0
 }
 
+
+# ---------------------------------------------------------------------------
+# Rendu de la popup (processus dedie, WPF)
+# ---------------------------------------------------------------------------
+
 Add-Type -AssemblyName PresentationFramework
 
+# Le fichier reste en ASCII pur : les accents passent par des points de code.
+$eAcute = [string][char]0x00E9
+$eCirc = [string][char]0x00EA
+$aGrave = [string][char]0x00E0
+
+$fontText = [System.Windows.Media.FontFamily]::new('Segoe UI Variable Text, Segoe UI')
+$fontDisplay = [System.Windows.Media.FontFamily]::new('Segoe UI Variable Display, Segoe UI')
+
+function New-Color {
+    param([string]$Hex)
+    return [System.Windows.Media.Color][System.Windows.Media.ColorConverter]::ConvertFromString($Hex)
+}
+
+function New-Brush {
+    param([string]$Hex, [double]$Opacity = 1)
+    $brush = [System.Windows.Media.SolidColorBrush]::new((New-Color $Hex))
+    $brush.Opacity = $Opacity
+    return $brush
+}
+
+function New-VerticalGradient {
+    param([string]$TopHex, [string]$BottomHex)
+    $brush = [System.Windows.Media.LinearGradientBrush]::new()
+    $brush.StartPoint = [System.Windows.Point]::new(0, 0)
+    $brush.EndPoint = [System.Windows.Point]::new(0, 1)
+    $null = $brush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color $TopHex), 0))
+    $null = $brush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color $BottomHex), 1))
+    return $brush
+}
+
+function New-Label {
+    param(
+        [string]$Content,
+        [double]$Size,
+        [string]$Hex,
+        [double]$Opacity = 1,
+        [switch]$SemiBold,
+        $Font = $null
+    )
+    $block = [System.Windows.Controls.TextBlock]::new()
+    $block.Text = $Content
+    $block.FontFamily = if ($Font) { $Font } else { $fontText }
+    $block.FontSize = $Size
+    $block.Foreground = New-Brush $Hex $Opacity
+    if ($SemiBold) { $block.FontWeight = [System.Windows.FontWeights]::SemiBold }
+    $block.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    $block.TextWrapping = [System.Windows.TextWrapping]::NoWrap
+    return $block
+}
+
+function New-Bar {
+    param([double]$Width, [double]$Height, [string]$Hex, [double]$Opacity = 1)
+    $bar = [System.Windows.Controls.Border]::new()
+    $bar.Width = $Width
+    $bar.Height = $Height
+    $bar.CornerRadius = [System.Windows.CornerRadius]::new($Height / 2)
+    $bar.Background = New-Brush $Hex $Opacity
+    return $bar
+}
+
+# --- Palette ---------------------------------------------------------------
+# L'identite de l'agent tient a sa couleur d'accent et non au fond : un meme
+# fond sombre pour les deux agents rend le texte nettement plus lisible.
+$surfaceTop = '#2A2C34'
+$surfaceBottom = '#16171B'
+$hairline = '#FFFFFF'
+$titleInk = '#F6F6F8'
+$bodyInk = '#A2AAB6'
+$mutedInk = '#7C848F'
+
+$agentAccent = if ($Agent -eq 'Claude') { '#E08A63' } else { '#19C37D' }
+
+$stateInfo = switch ($State) {
+    'Question' {
+        @{
+            Glyph = '?'
+            Tone = '#F5B75A'
+            Title = '{0} attend ta r{1}ponse' -f $Agent, $eAcute
+            Detail = 'Une question t{0}attend dans VS Code' -f [char]0x2019
+        }
+    }
+    'Blocked' {
+        @{
+            Glyph = '!'
+            Tone = '#F27059'
+            Title = '{0} a besoin de toi' -f $Agent
+            Detail = 'T{0}che en pause' -f $aGrave
+        }
+    }
+    'Tested' {
+        @{
+            Glyph = [string][char]0x2713
+            Tone = '#4ADE80'
+            Title = '{0} a termin{1}' -f $Agent, $eAcute
+            Detail = 'Tests valid{0}s' -f $eAcute
+        }
+    }
+    'Code' {
+        @{
+            Glyph = [string][char]0x2713
+            Tone = $agentAccent
+            Title = '{0} a termin{1}' -f $Agent, $eAcute
+            Detail = 'Le code a {0}t{0} modifi{0}' -f $eAcute
+        }
+    }
+    default {
+        @{
+            Glyph = [string][char]0x2713
+            Tone = $agentAccent
+            Title = '{0} a termin{1}' -f $Agent, $eAcute
+            Detail = 'La r{0}ponse est pr{1}te' -f $eAcute, $eCirc
+        }
+    }
+}
+
+$tone = $stateInfo.Tone
+
+# --- Fenetre ---------------------------------------------------------------
 $window = [System.Windows.Window]::new()
 $window.SizeToContent = [System.Windows.SizeToContent]::WidthAndHeight
 $window.WindowStyle = [System.Windows.WindowStyle]::None
@@ -264,206 +419,237 @@ $window.Background = [System.Windows.Media.Brushes]::Transparent
 $window.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
 $window.Opacity = 0
 
-$background = if ($Agent -eq 'Claude') { '#E6C76545' } else { '#ED181A1E' }
-$outline = if ($Agent -eq 'Claude') { '#80F1B89E' } else { '#705A5E64' }
-$foreground = if ($Agent -eq 'Claude') { '#FFF8F3' } else { '#F2F0E8' }
-$accent = if ($Agent -eq 'Claude') { '#FFF0E6' } else { '#42B978' }
+$card = [System.Windows.Controls.Border]::new()
+$card.Background = New-VerticalGradient $surfaceTop $surfaceBottom
+$card.BorderBrush = New-Brush $hairline 0.14
+$card.BorderThickness = [System.Windows.Thickness]::new(1)
+$card.CornerRadius = [System.Windows.CornerRadius]::new(18)
+$card.Padding = [System.Windows.Thickness]::new(20, 17, 22, 16)
+$card.MinWidth = 340
+$card.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 1)
 
-$border = [System.Windows.Controls.Border]::new()
-$border.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($background)
-$border.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString($outline)
-$border.BorderThickness = [System.Windows.Thickness]::new(1)
-$border.CornerRadius = [System.Windows.CornerRadius]::new(16)
-$border.Padding = [System.Windows.Thickness]::new(24, 13, 24, 13)
-$border.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 0.5)
-
-$scale = [System.Windows.Media.ScaleTransform]::new(0.92, 0.92)
-$border.RenderTransform = $scale
+$scale = [System.Windows.Media.ScaleTransform]::new(0.96, 0.96)
+$slide = [System.Windows.Media.TranslateTransform]::new(0, 18)
+$transforms = [System.Windows.Media.TransformGroup]::new()
+$null = $transforms.Children.Add($scale)
+$null = $transforms.Children.Add($slide)
+$card.RenderTransform = $transforms
 
 $shadow = [System.Windows.Media.Effects.DropShadowEffect]::new()
-$shadow.BlurRadius = 22
-$shadow.ShadowDepth = 3
-$shadow.Opacity = 0.28
+$shadow.BlurRadius = 32
+$shadow.ShadowDepth = 7
+$shadow.Direction = 270
+$shadow.Opacity = 0.5
 $shadow.Color = [System.Windows.Media.Colors]::Black
-$border.Effect = $shadow
+$card.Effect = $shadow
 
-$panel = [System.Windows.Controls.StackPanel]::new()
-$panel.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-$panel.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-$panel.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$root = [System.Windows.Controls.StackPanel]::new()
+$root.Orientation = [System.Windows.Controls.Orientation]::Vertical
 
-$contentPanel = [System.Windows.Controls.StackPanel]::new()
-$contentPanel.Orientation = [System.Windows.Controls.Orientation]::Vertical
-$contentPanel.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-
-$dot = [System.Windows.Shapes.Ellipse]::new()
-$dot.Width = 12
-$dot.Height = 12
-$dot.Margin = [System.Windows.Thickness]::new(0, 0, 13, 0)
-$dot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString($accent)
-
-$text = [System.Windows.Controls.TextBlock]::new()
-$text.Text = switch ($State) {
-    'Question' { '{0} attend ta r{1}ponse' -f $Agent, [char]0x00E9 }
-    'Code' { '{0} a termin{1}' -f $Agent, [char]0x00E9 }
-    'Tested' { '{0} a termin{1}, tout est valid{1} ! {2}' -f $Agent, [char]0x00E9, [char]0x2728 }
-    'Blocked' { '{0} a besoin de toi' -f $Agent }
-    default { '{0} a fini, c''est pr{1}t ! {2}' -f $Agent, [char]0x00EA, [char]0x2728 }
+# --- En-tete : pastille d'etat, titre, sous-titre --------------------------
+$header = [System.Windows.Controls.Grid]::new()
+foreach ($width in @([System.Windows.GridLength]::Auto, [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star))) {
+    $column = [System.Windows.Controls.ColumnDefinition]::new()
+    $column.Width = $width
+    $header.ColumnDefinitions.Add($column)
 }
-$text.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($foreground)
-$text.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI')
-$text.FontSize = 20
-$text.FontWeight = [System.Windows.FontWeights]::SemiBold
-$text.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
 
-$null = $panel.Children.Add($dot)
-$null = $panel.Children.Add($text)
-$null = $contentPanel.Children.Add($panel)
+$badge = [System.Windows.Controls.Border]::new()
+$badge.Width = 38
+$badge.Height = 38
+$badge.CornerRadius = [System.Windows.CornerRadius]::new(12)
+$badge.Background = New-Brush $tone 0.16
+$badge.BorderBrush = New-Brush $tone 0.4
+$badge.BorderThickness = [System.Windows.Thickness]::new(1)
+$badge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
 
+$glyph = New-Label -Content $stateInfo.Glyph -Size 17 -Hex $tone -Font $fontDisplay
+$glyph.FontWeight = [System.Windows.FontWeights]::Bold
+$glyph.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$glyph.Margin = [System.Windows.Thickness]::new(0, -1, 0, 0)
+$badge.Child = $glyph
+
+$headerText = [System.Windows.Controls.StackPanel]::new()
+$headerText.Orientation = [System.Windows.Controls.Orientation]::Vertical
+$headerText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$headerText.Margin = [System.Windows.Thickness]::new(14, 0, 0, 0)
+
+$title = New-Label -Content $stateInfo.Title -Size 16.5 -Hex $titleInk -SemiBold -Font $fontDisplay
+$title.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+
+$detail = New-Label -Content $stateInfo.Detail -Size 11.5 -Hex $bodyInk
+$detail.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+$detail.Margin = [System.Windows.Thickness]::new(0, 3, 0, 0)
+
+$null = $headerText.Children.Add($title)
+$null = $headerText.Children.Add($detail)
+
+[System.Windows.Controls.Grid]::SetColumn($badge, 0)
+[System.Windows.Controls.Grid]::SetColumn($headerText, 1)
+$null = $header.Children.Add($badge)
+$null = $header.Children.Add($headerText)
+$null = $root.Children.Add($header)
+
+# --- Quotas ----------------------------------------------------------------
 $quotaFills = @()
 if ($QuotaText) {
-    $quotaPanel = [System.Windows.Controls.StackPanel]::new()
-    $quotaPanel.Margin = [System.Windows.Thickness]::new(0, 7, 0, 0)
-    $quotaPanel.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+    $entries = [regex]::Matches($QuotaText, '(\d+\s*(?:min|h|j))\s+(\d+)\s*%(?:\s+reset\s+([^|]+))?')
 
-    $quotaTitle = [System.Windows.Controls.TextBlock]::new()
-    $quotaTitle.Text = 'Quota restant'
-    $quotaTitle.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($foreground)
-    $quotaTitle.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI')
-    $quotaTitle.FontSize = 11
-    $quotaTitle.Opacity = 0.68
-    $quotaTitle.Margin = [System.Windows.Thickness]::new(0, 0, 0, 3)
-    $quotaTitle.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-    $null = $quotaPanel.Children.Add($quotaTitle)
+    if ($entries.Count -gt 0) {
+        $separator = [System.Windows.Controls.Border]::new()
+        $separator.Height = 1
+        $separator.Background = New-Brush $hairline 0.1
+        $separator.Margin = [System.Windows.Thickness]::new(0, 15, 0, 13)
+        $null = $root.Children.Add($separator)
 
-    $matches = [regex]::Matches($QuotaText, '(\d+\s*(?:min|h|j))\s+(\d+)\s*%(?:\s+reset\s+([^|]+))?')
-    foreach ($match in $matches) {
-        $label = $match.Groups[1].Value
-        $percent = [Math]::Min(100, [Math]::Max(0, [int]$match.Groups[2].Value))
-        $resetIn = $match.Groups[3].Value.Trim()
+        $caption = New-Label -Content 'QUOTA RESTANT' -Size 9.5 -Hex $mutedInk -SemiBold
+        $caption.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+        $caption.Margin = [System.Windows.Thickness]::new(1, 0, 0, 8)
+        $null = $root.Children.Add($caption)
 
-        $row = [System.Windows.Controls.StackPanel]::new()
-        $row.Orientation = [System.Windows.Controls.Orientation]::Horizontal
-        $row.Margin = [System.Windows.Thickness]::new(0, 2, 0, 1)
-        $row.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-
-        $labelText = [System.Windows.Controls.TextBlock]::new()
-        $labelText.Text = $label
-        $labelText.Width = 34
-        $labelText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($foreground)
-        $labelText.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI')
-        $labelText.FontSize = 11
-        $labelText.Opacity = 0.78
-        $labelText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-
-        $track = [System.Windows.Controls.Border]::new()
-        $track.Width = 150
-        $track.Height = 7
-        $track.Margin = [System.Windows.Thickness]::new(5, 0, 8, 0)
-        $track.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#38FFFFFF')
-        $track.CornerRadius = [System.Windows.CornerRadius]::new(4)
-
-        $fill = [System.Windows.Controls.Border]::new()
-        $fill.Width = 0
-        $fill.Height = 7
-        $fill.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-        $barColor = if ($percent -lt 20) {
-            '#E85D5D'
-        } elseif ($percent -le 40) {
-            '#F0A44B'
-        } else {
-            $accent
+        $grid = [System.Windows.Controls.Grid]::new()
+        foreach ($index in 0..3) {
+            $column = [System.Windows.Controls.ColumnDefinition]::new()
+            $column.Width = [System.Windows.GridLength]::Auto
+            $grid.ColumnDefinitions.Add($column)
         }
-        $fill.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString($barColor)
-        $fill.CornerRadius = [System.Windows.CornerRadius]::new(4)
-        $track.Child = $fill
 
-        $percentText = [System.Windows.Controls.TextBlock]::new()
-        $percentText.Text = '{0} %' -f $percent
-        $percentText.Width = 38
-        $percentText.TextAlignment = [System.Windows.TextAlignment]::Right
-        $percentText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($foreground)
-        $percentText.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI')
-        $percentText.FontSize = 11
-        $percentText.Opacity = 0.82
-        $percentText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+        $rowIndex = 0
+        foreach ($entry in $entries) {
+            $row = [System.Windows.Controls.RowDefinition]::new()
+            $row.Height = [System.Windows.GridLength]::Auto
+            $grid.RowDefinitions.Add($row)
 
-        $resetText = [System.Windows.Controls.TextBlock]::new()
-        $resetText.Text = if ($resetIn) { 'reset dans {0}' -f $resetIn } else { '' }
-        $resetText.Width = 100
-        $resetText.Margin = [System.Windows.Thickness]::new(10, 0, 0, 0)
-        $resetText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($foreground)
-        $resetText.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI')
-        $resetText.FontSize = 10
-        $resetText.Opacity = 0.62
-        $resetText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+            $percent = [Math]::Min(100, [Math]::Max(0, [int]$entry.Groups[2].Value))
+            $resetIn = $entry.Groups[3].Value.Trim()
+            $barTone = if ($percent -lt 20) { '#F27059' } elseif ($percent -le 40) { '#F5B75A' } else { $agentAccent }
 
-        $null = $row.Children.Add($labelText)
-        $null = $row.Children.Add($track)
-        $null = $row.Children.Add($percentText)
-        $null = $row.Children.Add($resetText)
-        $null = $quotaPanel.Children.Add($row)
-        $quotaFills += [pscustomobject]@{ Fill = $fill; Target = 1.5 * $percent }
+            $windowLabel = New-Label -Content $entry.Groups[1].Value -Size 11 -Hex $bodyInk
+            $windowLabel.MinWidth = 30
+            $windowLabel.Margin = [System.Windows.Thickness]::new(1, 4, 0, 4)
+
+            $track = New-Bar -Width 168 -Height 8 -Hex $hairline -Opacity 0.11
+            $track.Margin = [System.Windows.Thickness]::new(10, 4, 12, 4)
+
+            $fill = New-Bar -Width 0 -Height 8 -Hex $barTone
+            $fill.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+            $track.Child = $fill
+
+            $percentLabel = New-Label -Content ('{0} %' -f $percent) -Size 11.5 -Hex $titleInk -SemiBold
+            $percentLabel.MinWidth = 40
+            $percentLabel.TextAlignment = [System.Windows.TextAlignment]::Right
+            $percentLabel.Margin = [System.Windows.Thickness]::new(0, 4, 0, 4)
+
+            $resetContent = if ($resetIn) { 'reset dans {0}' -f $resetIn } else { '' }
+            $resetLabel = New-Label -Content $resetContent -Size 10.5 -Hex $mutedInk
+            $resetLabel.Margin = [System.Windows.Thickness]::new(14, 4, 0, 4)
+
+            $cells = @($windowLabel, $track, $percentLabel, $resetLabel)
+            for ($column = 0; $column -lt $cells.Count; $column++) {
+                [System.Windows.Controls.Grid]::SetRow($cells[$column], $rowIndex)
+                [System.Windows.Controls.Grid]::SetColumn($cells[$column], $column)
+                $null = $grid.Children.Add($cells[$column])
+            }
+
+            $quotaFills += [pscustomobject]@{ Fill = $fill; Target = 168 * $percent / 100 }
+            $rowIndex++
+        }
+
+        $null = $root.Children.Add($grid)
     }
-
-    $null = $contentPanel.Children.Add($quotaPanel)
 }
 
-$border.Child = $contentPanel
-$window.Content = $border
+# --- Ligne de vie : temps restant avant fermeture --------------------------
+$progressTrack = [System.Windows.Controls.Border]::new()
+$progressTrack.Height = 3
+$progressTrack.CornerRadius = [System.Windows.CornerRadius]::new(1.5)
+$progressTrack.Background = New-Brush $hairline 0.07
+$progressTrack.Margin = [System.Windows.Thickness]::new(0, 16, 0, 0)
 
+$progressFill = [System.Windows.Controls.Border]::new()
+$progressFill.Height = 3
+$progressFill.Width = 0
+$progressFill.CornerRadius = [System.Windows.CornerRadius]::new(1.5)
+$progressFill.Background = New-Brush $tone 0.7
+$progressFill.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+$progressTrack.Child = $progressFill
+$null = $root.Children.Add($progressTrack)
+
+$card.Child = $root
+$window.Content = $card
+
+# --- Animations et cycle de vie --------------------------------------------
 $ease = [System.Windows.Media.Animation.CubicEase]::new()
 $ease.EasingMode = [System.Windows.Media.Animation.EasingMode]::EaseOut
 
-$fadeIn = [System.Windows.Media.Animation.DoubleAnimation]::new()
-$fadeIn.From = 0
-$fadeIn.To = 0.96
-$fadeIn.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(280))
-$fadeIn.EasingFunction = $ease
-
-$grow = [System.Windows.Media.Animation.DoubleAnimation]::new()
-$grow.From = 0.92
-$grow.To = 1
-$grow.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(320))
-$grow.EasingFunction = $ease
-
-$pulse = [System.Windows.Media.Animation.DoubleAnimation]::new()
-$pulse.From = 0.45
-$pulse.To = 1
-$pulse.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(750))
-$pulse.AutoReverse = $true
-$pulse.RepeatBehavior = [System.Windows.Media.Animation.RepeatBehavior]::Forever
+$script:progressWidth = 0
+$script:closing = $false
 
 $timer = [System.Windows.Threading.DispatcherTimer]::new()
-$timer.Interval = [TimeSpan]::FromSeconds(4.5)
-$timer.Add_Tick({
-    $timer.Stop()
+$timer.Interval = [TimeSpan]::FromSeconds(5.5)
 
-    $fadeOut = [System.Windows.Media.Animation.DoubleAnimation]::new()
-    $fadeOut.From = $window.Opacity
-    $fadeOut.To = 0
-    $fadeOut.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(450))
+function New-Fade {
+    param([double]$From, [double]$To, [int]$Milliseconds)
+    $animation = [System.Windows.Media.Animation.DoubleAnimation]::new()
+    $animation.From = $From
+    $animation.To = $To
+    $animation.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds($Milliseconds))
+    $animation.EasingFunction = $ease
+    return $animation
+}
+
+function Start-Countdown {
+    if ($script:closing) { return }
+    $timer.Stop()
+    $countdown = [System.Windows.Media.Animation.DoubleAnimation]::new()
+    $countdown.From = $script:progressWidth
+    $countdown.To = 0
+    $countdown.Duration = [System.Windows.Duration]::new($timer.Interval)
+    $progressFill.BeginAnimation([System.Windows.FrameworkElement]::WidthProperty, $countdown)
+    $timer.Start()
+}
+
+function Stop-Countdown {
+    $timer.Stop()
+    $progressFill.BeginAnimation([System.Windows.FrameworkElement]::WidthProperty, $null)
+    $progressFill.Width = $script:progressWidth
+}
+
+function Invoke-Dismiss {
+    if ($script:closing) { return }
+    $script:closing = $true
+    $timer.Stop()
+    $fadeOut = New-Fade -From $window.Opacity -To 0 -Milliseconds 380
     $fadeOut.Add_Completed({ $window.Close() })
+    $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, (New-Fade -From 0 -To 12 -Milliseconds 380))
     $window.BeginAnimation([System.Windows.Window]::OpacityProperty, $fadeOut)
-})
+}
+
+$timer.Add_Tick({ Invoke-Dismiss })
+
+# Survol : le compte a rebours se fige et repart a zero ; un clic ferme.
+$window.Add_MouseEnter({ Stop-Countdown })
+$window.Add_MouseLeave({ Start-Countdown })
+$window.Add_MouseLeftButtonUp({ Invoke-Dismiss })
+
 $window.Add_ContentRendered({
     $workArea = [System.Windows.SystemParameters]::WorkArea
     $window.Left = $workArea.Left + (($workArea.Width - $window.ActualWidth) / 2)
-    $window.Top = $workArea.Bottom - $window.ActualHeight - 70
+    $window.Top = $workArea.Bottom - $window.ActualHeight - 64
 
-    $window.BeginAnimation([System.Windows.Window]::OpacityProperty, $fadeIn)
-    $scale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, $grow)
-    $scale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, $grow)
-    $dot.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $pulse)
-    foreach ($entry in $quotaFills) {
-        $barAnimation = [System.Windows.Media.Animation.DoubleAnimation]::new()
-        $barAnimation.From = 0
-        $barAnimation.To = $entry.Target
-        $barAnimation.Duration = [System.Windows.Duration]::new([TimeSpan]::FromMilliseconds(550))
-        $barAnimation.EasingFunction = $ease
-        $entry.Fill.BeginAnimation([System.Windows.FrameworkElement]::WidthProperty, $barAnimation)
+    $script:progressWidth = $progressTrack.ActualWidth
+
+    $window.BeginAnimation([System.Windows.Window]::OpacityProperty, (New-Fade -From 0 -To 1 -Milliseconds 260))
+    $scale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, (New-Fade -From 0.96 -To 1 -Milliseconds 340))
+    $scale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, (New-Fade -From 0.96 -To 1 -Milliseconds 340))
+    $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, (New-Fade -From 18 -To 0 -Milliseconds 340))
+
+    foreach ($item in $quotaFills) {
+        $barAnimation = New-Fade -From 0 -To $item.Target -Milliseconds 620
+        $item.Fill.BeginAnimation([System.Windows.FrameworkElement]::WidthProperty, $barAnimation)
     }
-    $timer.Start()
+
+    Start-Countdown
 })
 
 $null = $window.ShowDialog()

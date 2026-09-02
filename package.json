@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -61,38 +61,49 @@
       "vsignal": [
         {
           "id": "vsignal.controlPanel",
-          "name": "VSignal"
+          "name": "VSignal",
+          "type": "webview"
         }
       ]
     },
     "commands": [
       {
         "command": "vsignal.toggle",
-        "title": "VSignal: Activer / désactiver"
+        "title": "Activer / désactiver",
+        "icon": "$(bell)",
+        "category": "VSignal"
       },
       {
         "command": "vsignal.refreshQuotas",
-        "title": "VSignal: Actualiser les quotas"
+        "title": "Actualiser les quotas",
+        "icon": "$(refresh)",
+        "category": "VSignal"
       },
       {
         "command": "vsignal.setup",
-        "title": "VSignal: Configurer Claude et Codex"
+        "title": "Configurer Claude et Codex",
+        "icon": "$(tools)",
+        "category": "VSignal"
       },
       {
         "command": "vsignal.testClaude",
-        "title": "VSignal: Tester Claude"
+        "title": "Tester Claude",
+        "category": "VSignal"
       },
       {
         "command": "vsignal.testCodex",
-        "title": "VSignal: Tester Codex"
+        "title": "Tester Codex",
+        "category": "VSignal"
       },
       {
         "command": "vsignal.showStatus",
-        "title": "VSignal: Afficher l’état"
+        "title": "Afficher l’état",
+        "category": "VSignal"
       },
       {
         "command": "vsignal.removeHooks",
-        "title": "VSignal: Retirer les hooks"
+        "title": "Retirer les hooks",
+        "category": "VSignal"
       }
     ],
     "configuration": {
@@ -107,8 +118,46 @@
           "type": "boolean",
           "default": true,
           "description": "Active ou désactive toutes les popups Claude et Codex."
+        },
+        "vsignal.popup.claude.fiveHours": {
+          "type": "boolean",
+          "default": true,
+          "order": 1,
+          "markdownDescription": "Affiche la barre de quota **5 h** de Claude dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+        },
+        "vsignal.popup.claude.weekly": {
+          "type": "boolean",
+          "default": true,
+          "order": 2,
+          "markdownDescription": "Affiche la barre de quota **7 j (hebdomadaire)** de Claude dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+        },
+        "vsignal.popup.codex.fiveHours": {
+          "type": "boolean",
+          "default": true,
+          "order": 3,
+          "markdownDescription": "Affiche la barre de quota **5 h** de Codex dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+        },
+        "vsignal.popup.codex.weekly": {
+          "type": "boolean",
+          "default": true,
+          "order": 4,
+          "markdownDescription": "Affiche la barre de quota **7 j (hebdomadaire)** de Codex dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
         }
       }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "vsignal.refreshQuotas",
+          "when": "view == vsignal.controlPanel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vsignal.setup",
+          "when": "view == vsignal.controlPanel",
+          "group": "navigation@2"
+        }
+      ]
     }
   },
   "scripts": {
