@@ -37,13 +37,20 @@ const POPUP_PREFERENCES = [
 // Tout ce que le panneau expose sous « Paramètres », en deux groupes.
 const SETTING_GROUPS = [
   { caption: 'Quotas affichés dans les popups', items: POPUP_PREFERENCES },
+  // Regroupees par modele : le libelle reste court, donc lisible en colonne
+  // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
   {
-    caption: 'Alertes',
+    caption: 'Alertes — Claude',
     items: [
-      { key: 'alert.lowQuota.claude', agent: 'Claude', label: 'Quota bas — Claude' },
-      { key: 'alert.lowQuota.codex', agent: 'Codex', label: 'Quota bas — Codex' },
-      { key: 'alert.reset.claude', agent: 'Claude', label: 'Remise à zéro — Claude' },
-      { key: 'alert.reset.codex', agent: 'Codex', label: 'Remise à zéro — Codex' }
+      { key: 'alert.lowQuota.claude', agent: 'Claude', label: 'Quota bas' },
+      { key: 'alert.reset.claude', agent: 'Claude', label: 'Remise à zéro' }
+    ]
+  },
+  {
+    caption: 'Alertes — Codex',
+    items: [
+      { key: 'alert.lowQuota.codex', agent: 'Codex', label: 'Quota bas' },
+      { key: 'alert.reset.codex', agent: 'Codex', label: 'Remise à zéro' }
     ]
   }
 ];
@@ -540,6 +547,10 @@ const PANEL_STYLE = `
 
 * { box-sizing: border-box; }
 
+/* Une regle d'auteur comme .actions { display: grid } l'emporte sinon sur le
+   [hidden] de la feuille du navigateur, et la section repliee reste visible. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   padding: 14px 14px 20px;
@@ -613,6 +624,78 @@ body {
 }
 
 .section:first-of-type { margin-top: 4px; }
+
+.section { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Chaque section se replie : on peut ne garder que les quotas sous les yeux
+   sans perdre l'acces aux reglages. */
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+}
+
+.section-toggle:hover { color: var(--vscode-foreground); }
+
+.section-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+.section-toggle .chevron {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  transition: transform 130ms ease;
+}
+
+.section-toggle[aria-expanded='false'] .chevron { transform: rotate(-90deg); }
+
+.section-toggle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section.with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.icon-button {
+  border: none;
+  background: none;
+  padding: 3px;
+  margin: -3px -3px -3px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.icon-button:hover {
+  color: var(--vscode-foreground);
+  background: rgba(128, 128, 128, 0.16);
+}
+
+.icon-button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
+.icon-button svg { width: 13px; height: 13px; display: block; }
+
+.icon-button.busy svg { animation: spin 0.9s linear infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .row {
   display: flex;
@@ -797,11 +880,24 @@ button.action.quiet:hover { color: var(--vscode-foreground); background: rgba(12
 .paused { opacity: 0.5; }
 
 /* Colonne etroite : on retire le superflu plutot que de laisser deborder. */
+/* Le delai avant reinitialisation ne disparait jamais : il se condense. */
+.reset .mid,
+.reset .tight { display: none; }
+
+@media (max-width: 300px) {
+  .reset .full { display: none; }
+  .reset .mid { display: inline; }
+}
+
+@media (max-width: 240px) {
+  .reset .mid { display: none; }
+  .reset .tight { display: inline; }
+}
+
 @media (max-width: 260px) {
   body { padding: 12px 9px 18px; }
   .card { padding: 10px; }
   .actions { grid-template-columns: 1fr; }
-  .quota-meta .left .reset { display: none; }
 }
 `;
 
@@ -829,6 +925,12 @@ function toggle(checked, onChange) {
 // Pourcentage consomme : la couleur dit la gravite, pas le modele. Peindre la
 // bande confortable aux couleurs de l'agent faisait passer un quota sain pour
 // une alerte.
+// '1 j 10 h' devient '1j10h', '27 min' devient '27m' : de quoi garder le
+// delai lisible meme dans une colonne tres etroite.
+function tighten(reset) {
+  return String(reset).replace(/\s+/g, '').replace(/min/g, 'm');
+}
+
 function barColor(percent) {
   if (percent >= 80) return 'var(--vsignal-alert)';
   if (percent >= 60) return 'var(--vsignal-warn)';
@@ -868,6 +970,8 @@ function renderStatus(state) {
 function renderQuotas(payload) {
   const host = document.getElementById('quotas');
   host.innerHTML = '';
+  const refresh = document.getElementById('refresh');
+  if (refresh) refresh.classList.toggle('busy', Boolean(payload.loading));
 
   if (payload.loading) {
     for (let index = 0; index < 2; index++) {
@@ -901,7 +1005,14 @@ function renderQuotas(payload) {
       const meta = el('div', 'quota-meta');
       const left = el('span', 'muted left');
       left.appendChild(el('span', null, value.window));
-      if (value.reset) left.appendChild(el('span', 'reset', '  ·  reset dans ' + value.reset));
+      if (value.reset) {
+        const reset = el('span', 'reset');
+        reset.title = 'reset dans ' + value.reset;
+        reset.appendChild(el('span', 'full', '  ·  reset dans ' + value.reset));
+        reset.appendChild(el('span', 'mid', '  ·  ' + value.reset));
+        reset.appendChild(el('span', 'tight', ' · ' + tighten(value.reset)));
+        left.appendChild(reset);
+      }
       const right = el('span', 'value', value.percent + ' %');
       meta.appendChild(left);
       meta.appendChild(right);
@@ -928,6 +1039,26 @@ window.addEventListener('message', event => {
 
 for (const button of document.querySelectorAll('[data-command]')) {
   button.addEventListener('click', () => send({ type: 'command', command: button.dataset.command }));
+}
+
+// L'etat replie survit aux fermetures du panneau et aux rechargements.
+const folded = new Set((vscode.getState() || {}).folded || []);
+
+function applyFold(toggle) {
+  const target = document.getElementById(toggle.dataset.target);
+  const open = !folded.has(toggle.dataset.target);
+  toggle.setAttribute('aria-expanded', String(open));
+  if (target) target.hidden = !open;
+}
+
+for (const toggle of document.querySelectorAll('.section-toggle')) {
+  applyFold(toggle);
+  toggle.addEventListener('click', () => {
+    const id = toggle.dataset.target;
+    if (folded.has(id)) folded.delete(id); else folded.add(id);
+    vscode.setState({ folded: [...folded] });
+    applyFold(toggle);
+  });
 }
 `;
 
@@ -1058,15 +1189,34 @@ class ControlPanelProvider {
       '<span id="status-pill" class="pill off">…</span>',
       '</div>',
       '<div class="card" id="master-card"><div class="master" id="master"></div></div>',
-      '<div class="section">Quotas consommés</div>',
+      '<div class="section with-action">',
+      '<button class="section-toggle" type="button" data-target="quotas" aria-expanded="true">',
+      '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
+      '<span>Quotas consommés</span>',
+      '</button>',
+      '<button class="icon-button" id="refresh" type="button" data-command="vsignal.refreshQuotas"',
+      ' title="Actualiser les quotas" aria-label="Actualiser les quotas">',
+      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">',
+      '<path d="M13.6 7a5.7 5.7 0 1 0-.5 3.4"/><path d="M13.9 3.1v3.6h-3.6"/>',
+      '</svg></button>',
+      '</div>',
       '<div class="card" id="quotas"></div>',
-      '<div class="section">Paramètres</div>',
+      '<div class="section">',
+      '<button class="section-toggle" type="button" data-target="prefs" aria-expanded="true">',
+      '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
+      '<span>Paramètres</span>',
+      '</button>',
+      '</div>',
       '<div class="card flush" id="prefs"></div>',
-      '<div class="section">Actions</div>',
-      '<div class="actions">',
+      '<div class="section">',
+      '<button class="section-toggle" type="button" data-target="actions" aria-expanded="true">',
+      '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
+      '<span>Actions</span>',
+      '</button>',
+      '</div>',
+      '<div class="actions" id="actions">',
       '<button class="action primary" data-command="vsignal.testClaude" type="button">Tester Claude</button>',
       '<button class="action primary" data-command="vsignal.testCodex" type="button">Tester Codex</button>',
-      '<button class="action wide" data-command="vsignal.refreshQuotas" type="button">Actualiser les quotas</button>',
       '<button class="action wide" data-command="vsignal.setup" type="button">Configurer / réparer les hooks</button>',
       '<button class="action quiet" data-command="vsignal.removeHooks" type="button">Retirer les hooks</button>',
       '</div>',

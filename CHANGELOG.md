@@ -2,6 +2,13 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.3.1 — 2026-09-03
+
+- Le délai avant réinitialisation ne disparaît plus en colonne étroite : il se condense en `27 min` puis en `27 m` plutôt que d’être masqué.
+- Les sections du panneau se replient d’un clic, l’état étant mémorisé : on peut ne garder que les quotas visibles tout en gardant les réglages accessibles.
+- Le bouton d’actualisation quitte la barre de titre de la vue pour l’en-tête « Quotas consommés », et tourne pendant la lecture.
+- Les réglages d’alerte sont regroupés par modèle, ce qui raccourcit les libellés et évite leur troncature en colonne étroite.
+
 ## 1.3.0 — 2026-09-03
 
 - Les popups s’affichent dans le coin **haut droit** et entrent par la droite.

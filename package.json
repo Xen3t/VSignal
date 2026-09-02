@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -179,11 +179,6 @@
     },
     "menus": {
       "view/title": [
-        {
-          "command": "vsignal.refreshQuotas",
-          "when": "view == vsignal.controlPanel",
-          "group": "navigation@1"
-        },
         {
           "command": "vsignal.setup",
           "when": "view == vsignal.controlPanel",
