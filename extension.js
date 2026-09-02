@@ -11,6 +11,15 @@ const LEGACY_SCRIPT_DIR = path.join(os.homedir(), '.agent-notifications');
 const SCRIPT_PATH = path.join(SCRIPT_DIR, 'agent-done.ps1');
 const DISABLED_PATH = path.join(SCRIPT_DIR, 'disabled');
 const PREFS_PATH = path.join(SCRIPT_DIR, 'popup.json');
+// Chemin absolu : l'hote d'extensions n'a pas toujours System32 dans son PATH,
+// et un spawn qui echoue sur 'powershell.exe' ne remonte nulle part.
+const POWERSHELL = path.join(
+  process.env.SystemRoot || 'C:\\Windows',
+  'System32',
+  'WindowsPowerShell',
+  'v1.0',
+  'powershell.exe'
+);
 const CLAUDE_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 const CODEX_CONFIG = path.join(os.homedir(), '.codex', 'config.toml');
 const MANAGED_FRAGMENTS = [
@@ -208,9 +217,8 @@ function configureClaude() {
 }
 
 function codexNotifyLine() {
-  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const args = [
-    powershell,
+    POWERSHELL,
     '-NoProfile',
     '-NonInteractive',
     '-ExecutionPolicy',
@@ -272,24 +280,40 @@ async function setup(context, interactive = false) {
   }
 }
 
+// Le processus lance ici rend la main tout de suite : c'est lui qui demarre
+// la fenetre WPF dans un processus separe. On garde donc stderr sous la main
+// pour pouvoir dire pourquoi une popup n'est pas apparue.
+function runPopup(args, onFailure) {
+  let child;
+  try {
+    child = spawn(
+      POWERSHELL,
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT_PATH, ...args],
+      { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }
+    );
+  } catch (error) {
+    if (onFailure) onFailure(error.message);
+    return;
+  }
+
+  let stderr = '';
+  child.stderr.on('data', chunk => {
+    stderr += chunk;
+  });
+  child.on('error', error => {
+    if (onFailure) onFailure(error.message);
+  });
+  child.on('exit', code => {
+    if (!onFailure || (code === 0 && !stderr.trim())) return;
+    onFailure(stderr.trim().split(/\r?\n/)[0] || `code de sortie ${code}`);
+  });
+}
+
 function showTest(agent) {
-  const child = spawn(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      SCRIPT_PATH,
-      '-Agent',
-      agent,
-      '-State',
-      'Done'
-    ],
-    { detached: true, windowsHide: true, stdio: 'ignore' }
-  );
-  child.unref();
+  runPopup(['-Agent', agent, '-State', 'Done'], message => {
+    vscode.window.showErrorMessage(`VSignal : le test ${agent} a échoué — ${message}`);
+  });
+  vscode.window.setStatusBarMessage(`VSignal : test ${agent} envoyé`, 3000);
 }
 
 async function runTest(context, agent) {
@@ -311,7 +335,7 @@ async function runTest(context, agent) {
 function readQuota(agent) {
   return new Promise(resolve => {
     execFile(
-      'powershell.exe',
+      POWERSHELL,
       [
         '-NoProfile',
         '-NonInteractive',
@@ -345,6 +369,48 @@ function parseQuota(text) {
 // Le JSON echappe les antislashs des chemins Windows : chercher le fragment
 // dans le texte brut du fichier ne marche jamais. Il faut comparer les
 // commandes une fois decodees.
+// La fenetre longue est celle libellee en jours ('7 j'), par opposition a la
+// fenetre courte en heures.
+function longWindow(values) {
+  return values.find(value => /j$/i.test(String(value.window).trim())) || null;
+}
+
+function showQuotaAlert(agent, weekly) {
+  const remaining = Math.max(0, 100 - weekly.percent);
+  runPopup([
+    '-Agent',
+    agent,
+    '-State',
+    'Quota',
+    '-Detail',
+    `Il reste ${remaining} % avant la réinitialisation`
+  ]);
+}
+
+// Alerte au franchissement du seuil, jamais en continu : le dernier
+// pourcentage vu est conserve d'une session a l'autre, et la remise a zero de
+// la fenetre rearme naturellement l'alerte.
+async function checkWeeklyQuota(context) {
+  const config = vscode.workspace.getConfiguration('vsignal');
+  if (!config.get('weeklyAlert.enabled', true) || !isEnabled()) return;
+
+  const threshold = Math.min(100, Math.max(50, Number(config.get('weeklyAlert.threshold', 90))));
+
+  for (const agent of ['Claude', 'Codex']) {
+    const weekly = longWindow(parseQuota(await readQuota(agent)));
+    if (!weekly) continue;
+
+    const key = `weeklySeen.${agent}`;
+    const previous = context.globalState.get(key);
+    await context.globalState.update(key, weekly.percent);
+
+    if (previous === undefined || previous >= threshold) continue;
+    if (weekly.percent < threshold) continue;
+
+    showQuotaAlert(agent, weekly);
+  }
+}
+
 function hasClaudeHook() {
   if (!fs.existsSync(CLAUDE_SETTINGS)) return false;
 
@@ -713,6 +779,17 @@ function renderStatus(state) {
     prefs.appendChild(row);
   }
 
+  const alertHost = document.getElementById('alert');
+  alertHost.innerHTML = '';
+  const alertRow = el('div', 'row');
+  const alertLabel = el('div');
+  alertLabel.appendChild(el('div', null, 'Prévenir quand le quota 7 j est bas'));
+  alertLabel.appendChild(el('div', 'muted', 'Une popup dès qu’il reste ' +
+    Math.max(0, 100 - state.alert.threshold) + ' % chez Claude ou Codex'));
+  alertRow.appendChild(alertLabel);
+  alertRow.appendChild(toggle(state.alert.value, value => send({ type: 'pref', key: state.alert.key, value })));
+  alertHost.appendChild(alertRow);
+
   document.getElementById('master-card').classList.toggle('paused', !state.enabled);
 }
 
@@ -785,6 +862,24 @@ class ControlPanelProvider {
     this.context = context;
     this.view = undefined;
     this.quotaToken = 0;
+    this.autoRefresh = undefined;
+  }
+
+  // Les quotas ne bougent pas d'une seconde a l'autre : un tour toutes les
+  // cinq minutes suffit, et seulement quand le panneau est sous les yeux.
+  startAutoRefresh() {
+    this.stopAutoRefresh();
+    this.autoRefresh = setInterval(() => this.refresh(), 5 * 60 * 1000);
+  }
+
+  stopAutoRefresh() {
+    if (!this.autoRefresh) return;
+    clearInterval(this.autoRefresh);
+    this.autoRefresh = undefined;
+  }
+
+  dispose() {
+    this.stopAutoRefresh();
   }
 
   resolveWebviewView(view) {
@@ -793,12 +888,19 @@ class ControlPanelProvider {
     view.webview.html = this.render(view.webview);
     view.webview.onDidReceiveMessage(message => this.receive(message));
     view.onDidChangeVisibility(() => {
-      if (view.visible) this.refresh();
+      if (!view.visible) {
+        this.stopAutoRefresh();
+        return;
+      }
+      this.refresh();
+      this.startAutoRefresh();
     });
     view.onDidDispose(() => {
+      this.stopAutoRefresh();
       this.view = undefined;
     });
     this.refresh();
+    this.startAutoRefresh();
   }
 
   receive(message) {
@@ -817,7 +919,8 @@ class ControlPanelProvider {
       return;
     }
 
-    if (message.type === 'pref' && POPUP_PREFERENCES.some(pref => pref.key === message.key)) {
+    const writable = POPUP_PREFERENCES.map(pref => pref.key).concat('weeklyAlert.enabled');
+    if (message.type === 'pref' && writable.includes(message.key)) {
       void vscode.workspace
         .getConfiguration('vsignal')
         .update(message.key, Boolean(message.value), vscode.ConfigurationTarget.Global);
@@ -840,7 +943,12 @@ class ControlPanelProvider {
         label: pref.label,
         agent: pref.agent,
         value: config.get(pref.key, true)
-      }))
+      })),
+      alert: {
+        key: 'weeklyAlert.enabled',
+        value: config.get('weeklyAlert.enabled', true),
+        threshold: Number(config.get('weeklyAlert.threshold', 90))
+      }
     });
 
     void this.loadQuotas();
@@ -881,6 +989,8 @@ class ControlPanelProvider {
       '<div class="card" id="master-card"><div class="master" id="master"></div></div>',
       '<div class="section">Quotas consommés</div>',
       '<div class="card" id="quotas"></div>',
+      '<div class="section">Alerte</div>',
+      '<div class="card" id="alert"></div>',
       '<div class="section">Quotas affichés dans les popups</div>',
       '<div class="card flush" id="prefs"></div>',
       '<div class="section">Actions</div>',
@@ -924,8 +1034,19 @@ function activate(context) {
         writePopupPreferences();
         if (controlPanelProvider) controlPanelProvider.refresh();
       }
+      if (event.affectsConfiguration('vsignal.weeklyAlert') && controlPanelProvider) {
+        controlPanelProvider.refresh();
+      }
     })
   );
+
+  // La surveillance tourne meme panneau ferme : c'est tout son interet.
+  const quotaWatch = setInterval(() => void checkWeeklyQuota(context), 15 * 60 * 1000);
+  context.subscriptions.push(
+    controlPanelProvider,
+    { dispose: () => clearInterval(quotaWatch) }
+  );
+  void checkWeeklyQuota(context);
 
   if (vscode.workspace.getConfiguration('vsignal').get('autoConfigure', true)) {
     void setup(context, false);

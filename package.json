@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -142,6 +142,20 @@
           "default": true,
           "order": 4,
           "markdownDescription": "Affiche la barre de quota **7 j (hebdomadaire)** de Codex dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+        },
+        "vsignal.weeklyAlert.enabled": {
+          "type": "boolean",
+          "default": true,
+          "order": 5,
+          "markdownDescription": "Affiche une popup quand le quota hebdomadaire (7 j) de Claude ou de Codex passe sous le seuil, une seule fois par fenêtre."
+        },
+        "vsignal.weeklyAlert.threshold": {
+          "type": "number",
+          "default": 90,
+          "minimum": 50,
+          "maximum": 100,
+          "order": 6,
+          "markdownDescription": "Pourcentage **consommé** du quota 7 j à partir duquel alerter. `90` déclenche l'alerte quand il ne reste plus que 10 %."
         }
       }
     },

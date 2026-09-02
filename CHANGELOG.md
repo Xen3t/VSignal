@@ -2,6 +2,13 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.2.0 — 2026-09-03
+
+- Nouvelle alerte : une popup prévient quand le quota hebdomadaire de Claude ou de Codex franchit le seuil, `90 %` consommé par défaut. Elle ne se répète pas tant que le quota reste haut et se réarme après la réinitialisation de la fenêtre.
+- Correction : les boutons « Tester » pouvaient rester sans effet et sans message. `powershell.exe` était lancé via le `PATH`, que l’hôte d’extensions ne fournit pas toujours, et l’événement `error` du processus n’était écouté nulle part. Le chemin absolu est désormais utilisé et tout échec est signalé.
+- Le panneau relit les quotas toutes les cinq minutes tant qu’il est visible ; la surveillance hebdomadaire tourne toutes les quinze minutes, même panneau fermé.
+- Correction : l’ajout du paramètre `-Detail` masquait la variable locale du sous-titre, PowerShell ne distinguant pas la casse des noms de variables, ce qui empêchait toute popup de s’afficher.
+
 ## 1.1.2 — 2026-09-03
 
 - Correction majeure : les quotas Claude étaient figés. Ils venaient d’un cache alimenté par le hook `statusLine`, qui ne s’exécute jamais dans l’extension VS Code — les chiffres affichés dataient de la dernière session en terminal. VSignal lit désormais `~/.claude.json`, que Claude Code tient à jour lui-même.

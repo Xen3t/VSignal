@@ -4,8 +4,10 @@ param(
     [ValidateSet('Claude', 'Codex')]
     [string]$Agent,
 
-    [ValidateSet('Done', 'Question', 'Code', 'Tested', 'Blocked')]
+    [ValidateSet('Done', 'Question', 'Code', 'Tested', 'Blocked', 'Quota')]
     [string]$State = 'Done',
+
+    [string]$Detail = '',
 
     [switch]$ReadStdin,
 
@@ -370,12 +372,19 @@ if (-not $Display) {
         }
     }
 
-    # Le panneau VS Code montre tout ; la popup ne montre que les fenetres cochees.
-    $QuotaText = if ($Agent -eq 'Codex') { Get-CodexQuotaText -ApplyPreference } else { Get-ClaudeQuotaText -ApplyPreference }
+    # Le panneau VS Code montre tout ; la popup ne montre que les fenetres cochees,
+    # sauf l'alerte de quota qui doit forcement afficher la barre concernee.
+    $filter = $State -ne 'Quota'
+    $QuotaText = if ($Agent -eq 'Codex') {
+        Get-CodexQuotaText -ApplyPreference:$filter
+    } else {
+        Get-ClaudeQuotaText -ApplyPreference:$filter
+    }
 
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $arguments = '-NoProfile -NonInteractive -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Agent "{1}" -State "{2}"' -f $PSCommandPath, $Agent, $State
     if ($QuotaText) { $arguments += ' -QuotaText "{0}"' -f $QuotaText }
+    if ($Detail) { $arguments += ' -Detail "{0}"' -f $Detail }
     $arguments += ' -Display'
     Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden
     exit 0
@@ -461,6 +470,14 @@ $mutedInk = '#7C848F'
 $agentAccent = if ($Agent -eq 'Claude') { '#E08A63' } else { '#19C37D' }
 
 $stateInfo = switch ($State) {
+    'Quota' {
+        @{
+            Glyph = '!'
+            Tone = '#F27059'
+            Title = '{0} : quota hebdomadaire bas' -f $Agent
+            Detail = 'La limite 7 j approche'
+        }
+    }
     'Question' {
         @{
             Glyph = '?'
@@ -502,6 +519,8 @@ $stateInfo = switch ($State) {
         }
     }
 }
+
+if ($Detail) { $stateInfo.Detail = $Detail }
 
 $tone = $stateInfo.Tone
 
@@ -576,12 +595,12 @@ $headerText.Margin = [System.Windows.Thickness]::new(14, 0, 0, 0)
 $title = New-Label -Content $stateInfo.Title -Size 16.5 -Hex $titleInk -SemiBold -Font $fontDisplay
 $title.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
 
-$detail = New-Label -Content $stateInfo.Detail -Size 11.5 -Hex $bodyInk
-$detail.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-$detail.Margin = [System.Windows.Thickness]::new(0, 3, 0, 0)
+$subtitle = New-Label -Content $stateInfo.Detail -Size 11.5 -Hex $bodyInk
+$subtitle.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+$subtitle.Margin = [System.Windows.Thickness]::new(0, 3, 0, 0)
 
 $null = $headerText.Children.Add($title)
-$null = $headerText.Children.Add($detail)
+$null = $headerText.Children.Add($subtitle)
 
 [System.Windows.Controls.Grid]::SetColumn($badge, 0)
 [System.Windows.Controls.Grid]::SetColumn($headerText, 1)
