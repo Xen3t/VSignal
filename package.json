@@ -1,0 +1,122 @@
+{
+  "name": "vsignal",
+  "displayName": "VSignal",
+  "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
+  "version": "1.0.0",
+  "publisher": "flowup-local",
+  "license": "MIT",
+  "homepage": "https://github.com/Xen3t/VSignal#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xen3t/VSignal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Xen3t/VSignal/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "codex",
+    "notification",
+    "popup",
+    "agent",
+    "claude-code",
+    "ai",
+    "powershell",
+    "windows",
+    "hooks",
+    "quota",
+    "toast"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:vsignal.setup",
+    "onCommand:vsignal.testClaude",
+    "onCommand:vsignal.testCodex",
+    "onCommand:vsignal.toggle",
+    "onCommand:vsignal.refreshQuotas",
+    "onCommand:vsignal.showStatus",
+    "onCommand:vsignal.removeHooks"
+  ],
+  "main": "./extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vsignal",
+          "title": "VSignal",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "vsignal": [
+        {
+          "id": "vsignal.controlPanel",
+          "name": "VSignal"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "vsignal.toggle",
+        "title": "VSignal: Activer / désactiver"
+      },
+      {
+        "command": "vsignal.refreshQuotas",
+        "title": "VSignal: Actualiser les quotas"
+      },
+      {
+        "command": "vsignal.setup",
+        "title": "VSignal: Configurer Claude et Codex"
+      },
+      {
+        "command": "vsignal.testClaude",
+        "title": "VSignal: Tester Claude"
+      },
+      {
+        "command": "vsignal.testCodex",
+        "title": "VSignal: Tester Codex"
+      },
+      {
+        "command": "vsignal.showStatus",
+        "title": "VSignal: Afficher l’état"
+      },
+      {
+        "command": "vsignal.removeHooks",
+        "title": "VSignal: Retirer les hooks"
+      }
+    ],
+    "configuration": {
+      "title": "VSignal",
+      "properties": {
+        "vsignal.autoConfigure": {
+          "type": "boolean",
+          "default": true,
+          "description": "Installe et répare automatiquement les hooks Claude/Codex au démarrage de VS Code."
+        },
+        "vsignal.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Active ou désactive toutes les popups Claude et Codex."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "node --check extension.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.2"
+  },
+  "qna": false
+}

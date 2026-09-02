@@ -1,0 +1,8 @@
+.git/**
+.gitignore
+.vscode/**
+node_modules/**
+Script_Hotkey/**
+SECURITY.md
+*.vsix
+package-lock.json
