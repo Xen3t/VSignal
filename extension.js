@@ -34,6 +34,22 @@ const POPUP_PREFERENCES = [
   { key: 'popup.codex.weekly', field: 'CodexWeekly', agent: 'Codex', label: 'Codex — 7 j' }
 ];
 
+// Tout ce que le panneau expose sous « Paramètres », en deux groupes.
+const SETTING_GROUPS = [
+  { caption: 'Quotas affichés dans les popups', items: POPUP_PREFERENCES },
+  {
+    caption: 'Alertes',
+    items: [
+      { key: 'alert.lowQuota.claude', agent: 'Claude', label: 'Quota bas — Claude' },
+      { key: 'alert.lowQuota.codex', agent: 'Codex', label: 'Quota bas — Codex' },
+      { key: 'alert.reset.claude', agent: 'Claude', label: 'Remise à zéro — Claude' },
+      { key: 'alert.reset.codex', agent: 'Codex', label: 'Remise à zéro — Codex' }
+    ]
+  }
+];
+
+const SETTING_KEYS = SETTING_GROUPS.flatMap(group => group.items.map(item => item.key));
+
 let controlPanelProvider;
 
 const claudeStopCommand = () =>
@@ -369,45 +385,70 @@ function parseQuota(text) {
 // Le JSON echappe les antislashs des chemins Windows : chercher le fragment
 // dans le texte brut du fichier ne marche jamais. Il faut comparer les
 // commandes une fois decodees.
-// La fenetre longue est celle libellee en jours ('7 j'), par opposition a la
-// fenetre courte en heures.
-function longWindow(values) {
-  return values.find(value => /j$/i.test(String(value.window).trim())) || null;
-}
-
-function showQuotaAlert(agent, weekly) {
-  const remaining = Math.max(0, 100 - weekly.percent);
+function showQuotaAlert(agent, value) {
+  const remaining = Math.max(0, 100 - value.percent);
   runPopup([
     '-Agent',
     agent,
     '-State',
     'Quota',
     '-Detail',
-    `Il reste ${remaining} % avant la réinitialisation`
+    `Il reste ${remaining} % sur la fenêtre ${value.window}`
   ]);
 }
 
-// Alerte au franchissement du seuil, jamais en continu : le dernier
-// pourcentage vu est conserve d'une session a l'autre, et la remise a zero de
-// la fenetre rearme naturellement l'alerte.
-async function checkWeeklyQuota(context) {
-  const config = vscode.workspace.getConfiguration('vsignal');
-  if (!config.get('weeklyAlert.enabled', true) || !isEnabled()) return;
+function showResetAlert(agent, value) {
+  runPopup([
+    '-Agent',
+    agent,
+    '-State',
+    'Reset',
+    '-Detail',
+    `La fenêtre ${value.window} est repartie à zéro`
+  ]);
+}
 
-  const threshold = Math.min(100, Math.max(50, Number(config.get('weeklyAlert.threshold', 90))));
+// Un pourcentage consomme ne peut que monter a l'interieur d'une fenetre :
+// une baisse nette signe donc une remise a zero. La marge evite de reagir a
+// un simple arrondi.
+const RESET_MARGIN = 5;
+
+// Les deux evenements se declenchent sur transition, jamais en continu. Le
+// dernier releve est conserve d'une session a l'autre pour que redemarrer VS
+// Code ne provoque pas une volee de notifications.
+async function checkQuotaEvents(context) {
+  if (!isEnabled()) return;
+
+  const config = vscode.workspace.getConfiguration('vsignal');
+  const threshold = Math.min(100, Math.max(50, Number(config.get('alert.threshold', 90))));
 
   for (const agent of ['Claude', 'Codex']) {
-    const weekly = longWindow(parseQuota(await readQuota(agent)));
-    if (!weekly) continue;
+    const suffix = agent.toLowerCase();
+    const wantsLow = config.get(`alert.lowQuota.${suffix}`, true);
+    const wantsReset = config.get(`alert.reset.${suffix}`, true);
 
-    const key = `weeklySeen.${agent}`;
-    const previous = context.globalState.get(key);
-    await context.globalState.update(key, weekly.percent);
+    const values = parseQuota(await readQuota(agent));
+    if (!values.length) continue;
 
-    if (previous === undefined || previous >= threshold) continue;
-    if (weekly.percent < threshold) continue;
+    const key = `quotaSeen.${agent}`;
+    const seen = { ...(context.globalState.get(key) || {}) };
+    const next = {};
 
-    showQuotaAlert(agent, weekly);
+    for (const value of values) {
+      const previous = seen[value.window];
+      next[value.window] = value.percent;
+      if (previous === undefined) continue;
+
+      if (value.percent <= previous - RESET_MARGIN) {
+        if (wantsReset) showResetAlert(agent, value);
+        continue;
+      }
+      if (wantsLow && previous < threshold && value.percent >= threshold) {
+        showQuotaAlert(agent, value);
+      }
+    }
+
+    await context.globalState.update(key, next);
   }
 }
 
@@ -583,7 +624,22 @@ body {
 
 .row + .row { margin-top: 2px; }
 
-.row .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.row .name { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
+
+.group-caption {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 6px;
+}
+
+.group + .group {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.22));
+}
 
 .row .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -664,7 +720,21 @@ body {
   margin-bottom: 4px;
 }
 
-.quota-meta .value { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* laisser le pourcentage toujours visible : c'est le seul chiffre qui compte,
+// le libelle de reinitialisation peut etre tronque sans perte. */
+.quota-meta .left {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quota-meta .value {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 
 .track {
   height: 6px;
@@ -725,6 +795,14 @@ button.action.quiet {
 button.action.quiet:hover { color: var(--vscode-foreground); background: rgba(128, 128, 128, 0.12); }
 
 .paused { opacity: 0.5; }
+
+/* Colonne etroite : on retire le superflu plutot que de laisser deborder. */
+@media (max-width: 260px) {
+  body { padding: 12px 9px 18px; }
+  .card { padding: 10px; }
+  .actions { grid-template-columns: 1fr; }
+  .quota-meta .left .reset { display: none; }
+}
 `;
 
 const PANEL_SCRIPT = `
@@ -748,10 +826,13 @@ function toggle(checked, onChange) {
   return button;
 }
 
-function barColor(percent, agent) {
+// Pourcentage consomme : la couleur dit la gravite, pas le modele. Peindre la
+// bande confortable aux couleurs de l'agent faisait passer un quota sain pour
+// une alerte.
+function barColor(percent) {
   if (percent >= 80) return 'var(--vsignal-alert)';
   if (percent >= 60) return 'var(--vsignal-warn)';
-  return agent === 'Codex' ? 'var(--vsignal-codex)' : 'var(--vsignal-claude)';
+  return 'var(--vsignal-ok)';
 }
 
 function renderStatus(state) {
@@ -761,34 +842,25 @@ function renderStatus(state) {
 
   const master = document.getElementById('master');
   master.innerHTML = '';
-  const label = el('div');
-  label.appendChild(el('div', 'title', 'Popups'));
-  label.appendChild(el('div', 'muted', state.enabled ? 'Claude et Codex te préviennent' : 'Aucune popup ne sera affichée'));
-  master.appendChild(label);
+  master.appendChild(el('div', 'title', 'Popups'));
   master.appendChild(toggle(state.enabled, () => send({ type: 'command', command: 'vsignal.toggle' })));
 
   const prefs = document.getElementById('prefs');
   prefs.innerHTML = '';
-  for (const pref of state.prefs) {
-    const row = el('div', 'row');
-    const name = el('div', 'name');
-    name.appendChild(el('span', 'dot ' + pref.agent.toLowerCase()));
-    name.appendChild(el('span', null, pref.label));
-    row.appendChild(name);
-    row.appendChild(toggle(pref.value, value => send({ type: 'pref', key: pref.key, value })));
-    prefs.appendChild(row);
+  for (const group of state.groups) {
+    const block = el('div', 'group');
+    block.appendChild(el('div', 'group-caption', group.caption));
+    for (const item of group.items) {
+      const row = el('div', 'row');
+      const name = el('div', 'name');
+      name.appendChild(el('span', 'dot ' + item.agent.toLowerCase()));
+      name.appendChild(el('span', null, item.label));
+      row.appendChild(name);
+      row.appendChild(toggle(item.value, value => send({ type: 'pref', key: item.key, value })));
+      block.appendChild(row);
+    }
+    prefs.appendChild(block);
   }
-
-  const alertHost = document.getElementById('alert');
-  alertHost.innerHTML = '';
-  const alertRow = el('div', 'row');
-  const alertLabel = el('div');
-  alertLabel.appendChild(el('div', null, 'Prévenir quand le quota 7 j est bas'));
-  alertLabel.appendChild(el('div', 'muted', 'Une popup dès qu’il reste ' +
-    Math.max(0, 100 - state.alert.threshold) + ' % chez Claude ou Codex'));
-  alertRow.appendChild(alertLabel);
-  alertRow.appendChild(toggle(state.alert.value, value => send({ type: 'pref', key: state.alert.key, value })));
-  alertHost.appendChild(alertRow);
 
   document.getElementById('master-card').classList.toggle('paused', !state.enabled);
 }
@@ -827,7 +899,9 @@ function renderQuotas(payload) {
     for (const value of entry.values) {
       const line = el('div', 'quota-line');
       const meta = el('div', 'quota-meta');
-      const left = el('span', 'muted', value.window + (value.reset ? '  ·  reset dans ' + value.reset : ''));
+      const left = el('span', 'muted left');
+      left.appendChild(el('span', null, value.window));
+      if (value.reset) left.appendChild(el('span', 'reset', '  ·  reset dans ' + value.reset));
       const right = el('span', 'value', value.percent + ' %');
       meta.appendChild(left);
       meta.appendChild(right);
@@ -835,7 +909,7 @@ function renderQuotas(payload) {
 
       const track = el('div', 'track');
       const fill = el('div', 'fill');
-      fill.style.background = barColor(value.percent, entry.agent);
+      fill.style.background = barColor(value.percent);
       track.appendChild(fill);
       line.appendChild(track);
       block.appendChild(line);
@@ -919,8 +993,7 @@ class ControlPanelProvider {
       return;
     }
 
-    const writable = POPUP_PREFERENCES.map(pref => pref.key).concat('weeklyAlert.enabled');
-    if (message.type === 'pref' && writable.includes(message.key)) {
+    if (message.type === 'pref' && SETTING_KEYS.includes(message.key)) {
       void vscode.workspace
         .getConfiguration('vsignal')
         .update(message.key, Boolean(message.value), vscode.ConfigurationTarget.Global);
@@ -938,17 +1011,15 @@ class ControlPanelProvider {
     this.post({
       type: 'state',
       enabled: isEnabled(),
-      prefs: POPUP_PREFERENCES.map(pref => ({
-        key: pref.key,
-        label: pref.label,
-        agent: pref.agent,
-        value: config.get(pref.key, true)
-      })),
-      alert: {
-        key: 'weeklyAlert.enabled',
-        value: config.get('weeklyAlert.enabled', true),
-        threshold: Number(config.get('weeklyAlert.threshold', 90))
-      }
+      groups: SETTING_GROUPS.map(group => ({
+        caption: group.caption,
+        items: group.items.map(item => ({
+          key: item.key,
+          label: item.label,
+          agent: item.agent,
+          value: config.get(item.key, true)
+        }))
+      }))
     });
 
     void this.loadQuotas();
@@ -989,9 +1060,7 @@ class ControlPanelProvider {
       '<div class="card" id="master-card"><div class="master" id="master"></div></div>',
       '<div class="section">Quotas consommés</div>',
       '<div class="card" id="quotas"></div>',
-      '<div class="section">Alerte</div>',
-      '<div class="card" id="alert"></div>',
-      '<div class="section">Quotas affichés dans les popups</div>',
+      '<div class="section">Paramètres</div>',
       '<div class="card flush" id="prefs"></div>',
       '<div class="section">Actions</div>',
       '<div class="actions">',
@@ -1034,19 +1103,19 @@ function activate(context) {
         writePopupPreferences();
         if (controlPanelProvider) controlPanelProvider.refresh();
       }
-      if (event.affectsConfiguration('vsignal.weeklyAlert') && controlPanelProvider) {
+      if (event.affectsConfiguration('vsignal.alert') && controlPanelProvider) {
         controlPanelProvider.refresh();
       }
     })
   );
 
   // La surveillance tourne meme panneau ferme : c'est tout son interet.
-  const quotaWatch = setInterval(() => void checkWeeklyQuota(context), 15 * 60 * 1000);
+  const quotaWatch = setInterval(() => void checkQuotaEvents(context), 15 * 60 * 1000);
   context.subscriptions.push(
     controlPanelProvider,
     { dispose: () => clearInterval(quotaWatch) }
   );
-  void checkWeeklyQuota(context);
+  void checkQuotaEvents(context);
 
   if (vscode.workspace.getConfiguration('vsignal').get('autoConfigure', true)) {
     void setup(context, false);

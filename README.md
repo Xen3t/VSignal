@@ -10,12 +10,13 @@ VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex 
 
 ## Fonctionnalités
 
-- Popup WPF toujours visible, centrée en bas de l’écran : pastille d’état colorée, titre, sous-titre explicatif et ligne de vie indiquant le temps restant avant fermeture.
+- Popup WPF toujours visible, dans le coin haut droit de l’écran : marque du modèle, titre, sous-titre explicatif et ligne de vie indiquant le temps restant avant fermeture.
 - Le survol met la fermeture en pause et la relance à zéro ; un clic ferme la popup immédiatement.
-- Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés, chaque état ayant sa couleur.
-- Barres de quota `5 h` et `7 j` avec pourcentage consommé et temps avant réinitialisation, comme `/usage` de Claude Code : la barre se remplit et passe à l’orange puis au rouge à mesure que la limite approche.
-- Panneau VS Code dédié : interrupteur général, quotas des deux modèles et choix des quotas affichés dans les popups.
-- Alerte automatique quand le quota hebdomadaire de Claude ou de Codex devient bas, une seule fois par fenêtre.
+- **La marque dit le modèle, la couleur dit la gravité.** Le logo Claude ou Codex identifie l’émetteur ; le vert, l’orange et le rouge sont réservés à l’état du quota, jamais à l’identité.
+- Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés.
+- Barres de quota `5 h` et `7 j` en pourcentage **consommé**, comme `/usage` de Claude Code : vert tant qu’il reste de la marge, orange à partir de 60 %, rouge à partir de 80 %.
+- Panneau VS Code dédié : interrupteur général, quotas des deux modèles et réglages regroupés.
+- Alertes automatiques quand une fenêtre de quota devient basse **ou** repart à zéro, activables modèle par modèle.
 - Configuration automatique à chaque démarrage de VS Code, quel que soit le projet ouvert.
 - Aucun serveur VSignal, aucune télémétrie et aucune notification Windows native.
 
@@ -56,8 +57,7 @@ Le panneau VSignal, dans la barre d’activité, regroupe tout :
 
 - **Popups** — l’interrupteur général, qui coupe ou rallume toutes les notifications.
 - **Quotas consommés** — les fenêtres `5 h` et `7 j` des deux modèles, toujours affichées ici en entier.
-- **Alerte** — la popup de fin de quota hebdomadaire, à activer ou couper.
-- **Quotas affichés dans les popups** — quatre interrupteurs indépendants pour choisir ce qui apparaît dans la popup.
+- **Paramètres** — ce que les popups affichent, et les alertes, modèle par modèle.
 - **Actions** — tester chaque modèle, actualiser les quotas, réparer ou retirer les hooks.
 
 Les hooks étant réinstallés et réparés à chaque démarrage de VS Code, le panneau ne consacre pas de place à leur état. Pour le vérifier ponctuellement, `VSignal: Afficher l’état` récapitule le script, les hooks Claude et le hook Codex.
@@ -81,18 +81,26 @@ Les quotas Claude viennent de `~/.claude.json`, que Claude Code met à jour de s
 - sur `Actualiser les quotas`, dans le panneau ou dans la barre de titre de la vue ;
 - juste avant chaque popup, pour que les barres qu’elle affiche soient à jour.
 
-Le panneau fermé, rien n’est relu : seule la surveillance du quota hebdomadaire continue, toutes les quinze minutes.
+Le panneau fermé, rien n’est relu : seule la surveillance des quotas continue, toutes les quinze minutes.
 
-### Alerte de quota hebdomadaire
+### Alertes de quota
 
-Quand la fenêtre `7 j` de Claude ou de Codex dépasse le seuil, VSignal affiche une popup rouge rappelant ce qu’il reste. Elle ne se déclenche qu’au **franchissement** du seuil : elle ne se répète pas tant que le quota reste haut, et se réarme d’elle-même après la réinitialisation de la fenêtre.
+VSignal surveille les deux fenêtres, `5 h` et `7 j`, pour chaque modèle, et signale deux moments :
+
+- **Quota bas** — la fenêtre franchit le seuil de consommation. Popup rouge rappelant ce qu’il reste.
+- **Remise à zéro** — la fenêtre repart de zéro. Popup verte : le modèle est de nouveau disponible.
+
+Les deux se déclenchent sur **transition**, jamais en continu : l’alerte de quota bas ne se répète pas tant que le quota reste haut, et redémarrer VS Code ne provoque aucune volée de notifications.
 
 | Réglage | Rôle |
 | --- | --- |
-| `vsignal.weeklyAlert.enabled` | Active ou coupe l’alerte |
-| `vsignal.weeklyAlert.threshold` | Pourcentage consommé déclencheur, `90` par défaut, soit 10 % restants |
+| `vsignal.alert.lowQuota.claude` | Prévenir quand une fenêtre Claude devient basse |
+| `vsignal.alert.lowQuota.codex` | Prévenir quand une fenêtre Codex devient basse |
+| `vsignal.alert.reset.claude` | Prévenir quand une fenêtre Claude repart à zéro |
+| `vsignal.alert.reset.codex` | Prévenir quand une fenêtre Codex repart à zéro |
+| `vsignal.alert.threshold` | Pourcentage consommé déclencheur, `90` par défaut, soit 10 % restants |
 
-Cette alerte ignore les quatre réglages ci-dessous : la barre concernée est toujours affichée, puisque c’est l’objet même de la notification.
+Ces alertes ignorent les quatre réglages ci-dessous : la barre concernée est toujours affichée, puisque c’est l’objet même de la notification.
 
 ### Choisir les quotas affichés dans les popups
 
@@ -131,6 +139,10 @@ Une sauvegarde `.before-vsignal.bak` est créée avant la première modification
 ## Désinstallation
 
 Avant de désinstaller l’extension, lancez `VSignal: Retirer les hooks` si vous souhaitez aussi retirer ses entrées des configurations Claude et Codex. Vous pouvez ensuite désinstaller VSignal normalement depuis le panneau Extensions de VS Code.
+
+## Marques
+
+Les logos Claude et Codex affichés dans les popups servent à identifier le modèle à l’origine de la notification. Ils appartiennent respectivement à Anthropic et à OpenAI, ne sont pas couverts par la licence MIT de VSignal, et leur présence ne vaut ni affiliation ni approbation.
 
 ## Licence
 

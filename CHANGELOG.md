@@ -2,6 +2,16 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.3.0 — 2026-09-03
+
+- Les popups s’affichent dans le coin **haut droit** et entrent par la droite.
+- Code couleur revu : la **marque** du modèle identifie l’émetteur, la **couleur** ne dit plus que la gravité. Un quota confortable s’affichait dans l’orange de Claude et se lisait comme une alerte ; il est désormais vert.
+- Les popups portent les logos officiels Claude et Codex, dessinés en vectoriel.
+- Nouvelle alerte de **remise à zéro** : une popup verte prévient quand une fenêtre de quota repart de zéro.
+- Les alertes couvrent maintenant les deux fenêtres, `5 h` et `7 j`, et s’activent modèle par modèle. Les réglages `vsignal.weeklyAlert.*` sont remplacés par `vsignal.alert.*`.
+- Panneau : l’interrupteur principal tient sur une ligne, et les réglages sont réunis dans une seule section « Paramètres ».
+- Panneau : les quotas restent lisibles en colonne étroite, le pourcentage ne disparaissant jamais au profit du libellé de réinitialisation.
+
 ## 1.2.0 — 2026-09-03
 
 - Nouvelle alerte : une popup prévient quand le quota hebdomadaire de Claude ou de Codex franchit le seuil, `90 %` consommé par défaut. Elle ne se répète pas tant que le quota reste haut et se réarme après la réinitialisation de la fenêtre.

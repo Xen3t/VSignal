@@ -4,7 +4,7 @@ param(
     [ValidateSet('Claude', 'Codex')]
     [string]$Agent,
 
-    [ValidateSet('Done', 'Question', 'Code', 'Tested', 'Blocked', 'Quota')]
+    [ValidateSet('Done', 'Question', 'Code', 'Tested', 'Blocked', 'Quota', 'Reset')]
     [string]$State = 'Done',
 
     [string]$Detail = '',
@@ -447,6 +447,27 @@ function New-Label {
     return $block
 }
 
+# Tracés officiels des marques Claude et Codex, repris des extensions
+# anthropic.claude-code et openai.chatgpt. Ils identifient les produits ;
+# ils appartiennent a Anthropic et OpenAI et ne sont pas couverts par la
+# licence MIT de VSignal.
+$claudeMarkPath = 'M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z'
+$codexMarkPath = 'M13.798 23.976a5.7 5.7 0 0 1-2.26-.456 6.1 6.1 0 0 1-1.903-1.27 5.7 5.7 0 0 1-1.88.311 5.75 5.75 0 0 1-2.95-.79 6.2 6.2 0 0 1-2.188-2.159q-.81-1.366-.809-3.045 0-.695.19-1.51a6.4 6.4 0 0 1-1.475-2.038A5.95 5.95 0 0 1 0 10.573Q0 9.278.547 8.08q.547-1.2 1.523-2.062a5.5 5.5 0 0 1 2.307-1.223A5.7 5.7 0 0 1 5.472 2.35 6.1 6.1 0 0 1 7.565.623 5.8 5.8 0 0 1 10.206 0q1.19 0 2.26.456a6.1 6.1 0 0 1 1.903 1.27 5.7 5.7 0 0 1 1.88-.311q1.594 0 2.95.79a6 6 0 0 1 2.165 2.159q.832 1.366.832 3.045 0 .695-.19 1.51a6.3 6.3 0 0 1 1.475 2.062q.523 1.15.523 2.422a5.9 5.9 0 0 1-.547 2.493q-.547 1.2-1.546 2.086a5.4 5.4 0 0 1-2.284 1.199 5.56 5.56 0 0 1-1.118 2.445 5.9 5.9 0 0 1-2.07 1.727 5.8 5.8 0 0 1-2.64.623m-5.876-2.997q1.19 0 2.07-.504l4.472-2.589a.53.53 0 0 0 .238-.455v-2.062L8.945 18.7a.96.96 0 0 1-1.047 0l-4.496-2.613a.7.7 0 0 1-.024.168v.287q0 1.224.571 2.254a4.24 4.24 0 0 0 1.642 1.583q1.047.6 2.331.599m.238-3.908a.6.6 0 0 0 .262.072q.118 0 .238-.072l1.784-1.031-5.734-3.357q-.522-.312-.523-.935V6.545a4.3 4.3 0 0 0-1.903 1.63 4.25 4.25 0 0 0-.714 2.398q0 1.176.595 2.254.594 1.08 1.546 1.63zm5.638 5.323q1.26 0 2.284-.576a4.3 4.3 0 0 0 1.618-1.582q.595-1.008.595-2.254v-5.179a.47.47 0 0 0-.238-.431l-1.808-1.055v6.689q0 .624-.524.935l-4.496 2.613a4.3 4.3 0 0 0 2.57.84m.904-8.776v-3.26l-2.688-1.535-2.712 1.535v3.26l2.712 1.535zM7.756 5.97q0-.623.523-.935l4.496-2.613a4.3 4.3 0 0 0-2.569-.84q-1.26 0-2.284.576A4.3 4.3 0 0 0 6.304 3.74q-.57 1.008-.57 2.254v5.155q0 .287.237.455l1.785 1.055zM19.84 17.43a4.16 4.16 0 0 0 1.88-1.63 4.33 4.33 0 0 0 .713-2.397q0-1.176-.595-2.254-.594-1.08-1.546-1.63l-4.449-2.59q-.143-.096-.261-.072a.46.46 0 0 0-.238.072L13.56 7.936l5.758 3.38a.9.9 0 0 1 .38.384q.143.216.143.528zM15.059 5.25q.524-.335 1.047 0l4.52 2.662V7.48q0-1.15-.57-2.181A4.14 4.14 0 0 0 18.46 3.62q-1.023-.623-2.379-.623-1.19 0-2.07.503L9.54 6.09a.53.53 0 0 0-.238.455v2.062z'
+
+function New-AgentMark {
+    param([string]$Agent, [double]$Size, [string]$Hex)
+
+    $mark = [System.Windows.Shapes.Path]::new()
+    $mark.Data = [System.Windows.Media.Geometry]::Parse($(if ($Agent -eq 'Codex') { $codexMarkPath } else { $claudeMarkPath }))
+    $mark.Fill = New-Brush $Hex
+    $mark.Stretch = [System.Windows.Media.Stretch]::Uniform
+    $mark.Width = $Size
+    $mark.Height = $Size
+    $mark.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+    $mark.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    return $mark
+}
+
 function New-Bar {
     param([double]$Width, [double]$Height, [string]$Hex, [double]$Opacity = 1)
     $bar = [System.Windows.Controls.Border]::new()
@@ -467,53 +488,63 @@ $titleInk = '#F6F6F8'
 $bodyInk = '#A2AAB6'
 $mutedInk = '#7C848F'
 
-$agentAccent = if ($Agent -eq 'Claude') { '#E08A63' } else { '#19C37D' }
+# La couleur ne porte plus l'identite du modele, seulement la gravite : un
+# quota confortable etait affiche dans l'orange de Claude et se lisait comme
+# une alerte. L'identite passe desormais par la marque de l'agent.
+$toneOk = '#4ADE80'
+$toneWarn = '#F5B75A'
+$toneAlert = '#F27059'
+$toneNeutral = '#FFFFFF'
+
+# Couleur de marque, utilisee uniquement pour dessiner le logo.
+$agentMarkInk = if ($Agent -eq 'Claude') { '#D97757' } else { '#FFFFFF' }
 
 $stateInfo = switch ($State) {
     'Quota' {
         @{
-            Glyph = '!'
-            Tone = '#F27059'
-            Title = '{0} : quota hebdomadaire bas' -f $Agent
-            Detail = 'La limite 7 j approche'
+            Tone = $toneAlert
+            Title = '{0} : quota bas' -f $Agent
+            Detail = 'La limite approche'
+        }
+    }
+    'Reset' {
+        @{
+            Tone = $toneOk
+            Title = '{0} : quota r{1}initialis{1}' -f $Agent, $eAcute
+            Detail = 'La fen{0}tre est repartie {1} z{2}ro' -f $eCirc, $aGrave, $eAcute
         }
     }
     'Question' {
         @{
-            Glyph = '?'
-            Tone = '#F5B75A'
+            Tone = $toneWarn
             Title = '{0} attend ta r{1}ponse' -f $Agent, $eAcute
             Detail = 'Une question t{0}attend dans VS Code' -f [char]0x2019
         }
     }
     'Blocked' {
         @{
-            Glyph = '!'
-            Tone = '#F27059'
+            Tone = $toneAlert
             Title = '{0} a besoin de toi' -f $Agent
             Detail = 'T{0}che en pause' -f $aGrave
         }
     }
     'Tested' {
         @{
-            Glyph = [string][char]0x2713
-            Tone = '#4ADE80'
+            Tone = $toneOk
             Title = '{0} a termin{1}' -f $Agent, $eAcute
             Detail = 'Tests valid{0}s' -f $eAcute
         }
     }
     'Code' {
         @{
-            Glyph = [string][char]0x2713
-            Tone = $agentAccent
+            Tone = $toneNeutral
             Title = '{0} a termin{1}' -f $Agent, $eAcute
             Detail = 'Le code a {0}t{0} modifi{0}' -f $eAcute
         }
     }
     default {
         @{
-            Glyph = [string][char]0x2713
-            Tone = $agentAccent
+            Tone = $toneNeutral
             Title = '{0} a termin{1}' -f $Agent, $eAcute
             Detail = 'La r{0}ponse est pr{1}te' -f $eAcute, $eCirc
         }
@@ -544,10 +575,10 @@ $card.BorderThickness = [System.Windows.Thickness]::new(1)
 $card.CornerRadius = [System.Windows.CornerRadius]::new(18)
 $card.Padding = [System.Windows.Thickness]::new(20, 17, 22, 16)
 $card.MinWidth = 340
-$card.RenderTransformOrigin = [System.Windows.Point]::new(0.5, 1)
+$card.RenderTransformOrigin = [System.Windows.Point]::new(1, 0)
 
 $scale = [System.Windows.Media.ScaleTransform]::new(0.96, 0.96)
-$slide = [System.Windows.Media.TranslateTransform]::new(0, 18)
+$slide = [System.Windows.Media.TranslateTransform]::new(26, 0)
 $transforms = [System.Windows.Media.TransformGroup]::new()
 $null = $transforms.Children.Add($scale)
 $null = $transforms.Children.Add($slide)
@@ -576,16 +607,13 @@ $badge = [System.Windows.Controls.Border]::new()
 $badge.Width = 38
 $badge.Height = 38
 $badge.CornerRadius = [System.Windows.CornerRadius]::new(12)
-$badge.Background = New-Brush $tone 0.16
-$badge.BorderBrush = New-Brush $tone 0.4
+$badge.Background = New-Brush $toneNeutral 0.06
+$isAlert = $tone -ne $toneNeutral
+$badge.BorderBrush = if ($isAlert) { New-Brush $tone 0.5 } else { New-Brush $toneNeutral 0.12 }
 $badge.BorderThickness = [System.Windows.Thickness]::new(1)
 $badge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
 
-$glyph = New-Label -Content $stateInfo.Glyph -Size 17 -Hex $tone -Font $fontDisplay
-$glyph.FontWeight = [System.Windows.FontWeights]::Bold
-$glyph.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-$glyph.Margin = [System.Windows.Thickness]::new(0, -1, 0, 0)
-$badge.Child = $glyph
+$badge.Child = New-AgentMark -Agent $Agent -Size 20 -Hex $agentMarkInk
 
 $headerText = [System.Windows.Controls.StackPanel]::new()
 $headerText.Orientation = [System.Windows.Controls.Orientation]::Vertical
@@ -641,7 +669,8 @@ if ($QuotaText) {
 
             $percent = [Math]::Min(100, [Math]::Max(0, [int]$entry.Groups[2].Value))
             $resetIn = $entry.Groups[3].Value.Trim()
-            $barTone = if ($percent -ge 80) { '#F27059' } elseif ($percent -ge 60) { '#F5B75A' } else { $agentAccent }
+            # Pourcentage consomme : bas vaut mieux que haut.
+            $barTone = if ($percent -ge 80) { $toneAlert } elseif ($percent -ge 60) { $toneWarn } else { $toneOk }
 
             $windowLabel = New-Label -Content $entry.Groups[1].Value -Size 11 -Hex $bodyInk
             $windowLabel.MinWidth = 30
@@ -740,7 +769,7 @@ function Invoke-Dismiss {
     $timer.Stop()
     $fadeOut = New-Fade -From $window.Opacity -To 0 -Milliseconds 380
     $fadeOut.Add_Completed({ $window.Close() })
-    $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, (New-Fade -From 0 -To 12 -Milliseconds 380))
+    $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::XProperty, (New-Fade -From 0 -To 20 -Milliseconds 380))
     $window.BeginAnimation([System.Windows.Window]::OpacityProperty, $fadeOut)
 }
 
@@ -753,15 +782,15 @@ $window.Add_MouseLeftButtonUp({ Invoke-Dismiss })
 
 $window.Add_ContentRendered({
     $workArea = [System.Windows.SystemParameters]::WorkArea
-    $window.Left = $workArea.Left + (($workArea.Width - $window.ActualWidth) / 2)
-    $window.Top = $workArea.Bottom - $window.ActualHeight - 64
+    $window.Left = $workArea.Right - $window.ActualWidth - 22
+    $window.Top = $workArea.Top + 22
 
     $script:progressWidth = $progressTrack.ActualWidth
 
     $window.BeginAnimation([System.Windows.Window]::OpacityProperty, (New-Fade -From 0 -To 1 -Milliseconds 260))
     $scale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleXProperty, (New-Fade -From 0.96 -To 1 -Milliseconds 340))
     $scale.BeginAnimation([System.Windows.Media.ScaleTransform]::ScaleYProperty, (New-Fade -From 0.96 -To 1 -Milliseconds 340))
-    $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::YProperty, (New-Fade -From 18 -To 0 -Milliseconds 340))
+    $slide.BeginAnimation([System.Windows.Media.TranslateTransform]::XProperty, (New-Fade -From 26 -To 0 -Milliseconds 340))
 
     foreach ($item in $quotaFills) {
         $barAnimation = New-Fade -From 0 -To $item.Target -Milliseconds 620
