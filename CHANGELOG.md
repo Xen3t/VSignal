@@ -2,6 +2,21 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.8.0 — 2026-09-03
+
+- Ajout d’un indicateur compact `+N%` à droite de la popup pour montrer le coût en quota `5 h` de la tâche terminée.
+- L’indicateur peut être activé ou désactivé séparément pour Claude et Codex.
+
+## 1.8.0 — 2026-09-03
+
+- Interface, popups et messages disponibles en français et en anglais.
+- Nouveau sélecteur `Automatique / Français / English` dans le panneau VSignal ; le mode automatique suit la langue d’affichage de VS Code.
+- Commandes et descriptions des paramètres localisées avec le système natif de VS Code.
+- Correction des alertes de quota afin que leur détail personnalisé soit bien affiché dans la popup.
+- Un refus récent de Claude pour quota atteint prend maintenant le pas sur son snapshot local en retard : la fenêtre concernée affiche immédiatement 100 %.
+- La ligne `Actualisé il y a…` utilise désormais l’horodatage réel des données ; cliquer sur Actualiser ne rajeunit plus artificiellement un cache inchangé.
+- Claude et Codex sont désormais relus ensemble toutes les 60 secondes pendant toute la durée de vie de VS Code, panneau ouvert ou fermé. Une seule boucle alimente le panneau et les alertes, déduplique les déclencheurs concurrents et conserve les dernières valeurs lors d’un échec ponctuel.
+
 ## 1.6.1 — 2026-09-03
 
 - Le titre des popups passe de 16,5 à 21 px, le sous-titre de 11,5 à 12,5. La pastille du modèle et son logo grandissent en proportion pour ne pas paraître rabougris à côté.

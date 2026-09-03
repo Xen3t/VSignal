@@ -9,6 +9,8 @@ param(
 
     [string]$Detail = '',
 
+    [string]$TaskDelta = '',
+
     [switch]$ReadStdin,
 
     [switch]$CacheClaudeQuota,
@@ -16,6 +18,8 @@ param(
     [string]$QuotaText = '',
 
     [switch]$PrintQuota,
+
+    [switch]$SnapshotQuota,
 
     [switch]$Display,
 
@@ -25,17 +29,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if (-not $Display -and -not $CacheClaudeQuota -and -not $PrintQuota -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'disabled'))) {
+if (-not $Display -and -not $CacheClaudeQuota -and -not $PrintQuota -and -not $SnapshotQuota -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'disabled'))) {
     exit 0
 }
 
 function Get-PopupPreference {
-    $defaults = [ordered]@{ ClaudeShort = $true; ClaudeWeekly = $true; CodexShort = $true; CodexWeekly = $true }
+    $defaults = [ordered]@{
+        ClaudeShort = $true
+        ClaudeWeekly = $true
+        CodexShort = $true
+        CodexWeekly = $true
+        ClaudeTaskPercent = $true
+        CodexTaskPercent = $true
+    }
     $path = Join-Path $PSScriptRoot 'popup.json'
     if (-not (Test-Path -LiteralPath $path)) { return $defaults }
 
     try {
-        $stored = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+        $stored = Get-Content -Raw -LiteralPath $path -Encoding UTF8 | ConvertFrom-Json
         foreach ($key in @($defaults.Keys)) {
             if ($null -ne $stored.$key) { $defaults[$key] = [bool]$stored.$key }
         }
@@ -61,6 +72,7 @@ function Format-QuotaText {
 
         $used = [Math]::Min(100, [Math]::Max(0, [Math]::Round([double]$limit.usedPercent)))
         $minutes = [int]$limit.windowDurationMins
+        if ($minutes -eq 300) { $script:CurrentPrimaryUsed = [double]$limit.usedPercent }
         $window = if ($minutes -eq 300) {
             '5 h'
         } elseif ($minutes -eq 10080) {
@@ -99,6 +111,37 @@ function Format-QuotaText {
 
     if ($parts.Count -eq 0) { return '' }
     return 'Quota : ' + ($parts -join '  |  ')
+}
+
+function Update-TaskQuotaBaseline {
+    param([string]$ForAgent, $CurrentUsed)
+
+    if ($null -eq $CurrentUsed) { return '' }
+
+    $path = Join-Path $PSScriptRoot ('task-quota-{0}.txt' -f $ForAgent.ToLowerInvariant())
+    $previous = $null
+    try {
+        if (Test-Path -LiteralPath $path) {
+            $previous = [double]::Parse(
+                (Get-Content -Raw -LiteralPath $path).Trim(),
+                [System.Globalization.CultureInfo]::InvariantCulture
+            )
+        }
+    } catch { $previous = $null }
+
+    try {
+        [System.IO.File]::WriteAllText(
+            $path,
+            ([double]$CurrentUsed).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+        )
+    } catch {}
+
+    if ($null -eq $previous) { return '' }
+    $delta = [double]$CurrentUsed - [double]$previous
+    if ($delta -le 0) { return '' }
+
+    $rounded = [Math]::Max(1, [Math]::Round($delta))
+    return '+{0}%' -f $rounded
 }
 
 function Wait-AppServerResponse {
@@ -176,7 +219,7 @@ function Get-CodexQuotaText {
 # Convertit une fenetre de ~/.claude.json en objet attendu par Format-QuotaText.
 # Le champ 'utilization' y est un pourcentage consomme de 0 a 100.
 function ConvertTo-QuotaWindow {
-    param($Window, [int]$DurationMins)
+    param($Window, [int]$DurationMins, [long]$ObservedAtMs = 0)
 
     if ($null -eq $Window -or $null -eq $Window.utilization) { return $null }
 
@@ -195,7 +238,62 @@ function ConvertTo-QuotaWindow {
         usedPercent = [double]$Window.utilization
         windowDurationMins = $DurationMins
         resetsAt = $resetsAt
+        observedAtMs = $ObservedAtMs
     }
+}
+
+# Le snapshot de ~/.claude.json peut avoir quelques minutes de retard. Claude
+# inscrit toutefois chaque refus 429 dans ses journaux avec la fenetre atteinte
+# et son heure de reset. Un refus plus recent que le snapshot est une preuve
+# locale que cette fenetre est arrivee a 100 %, sans lire les identifiants OAuth.
+function Get-ClaudeRateLimitOverrides {
+    param([long]$AfterMs)
+
+    $projectsPath = Join-Path $env:USERPROFILE '.claude\projects'
+    if (-not (Test-Path -LiteralPath $projectsPath)) { return $null }
+
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $primary = $null
+    $secondary = $null
+
+    try {
+        $files = Get-ChildItem -LiteralPath $projectsPath -Recurse -File -Filter '*.jsonl' -ErrorAction SilentlyContinue |
+            Where-Object { ([DateTimeOffset]$_.LastWriteTimeUtc).ToUnixTimeMilliseconds() -gt $AfterMs } |
+            Sort-Object LastWriteTimeUtc -Descending
+
+        foreach ($file in $files) {
+            foreach ($line in @(Get-Content -LiteralPath $file.FullName -Encoding UTF8 -Tail 300 -ErrorAction SilentlyContinue)) {
+                try { $event = $line | ConvertFrom-Json } catch { continue }
+                if ($event.error -ne 'rate_limit' -or $event.quotaLimits.status -ne 'rejected') { continue }
+
+                try {
+                    $observedAtMs = [DateTimeOffset]::Parse(
+                        [string]$event.timestamp,
+                        [System.Globalization.CultureInfo]::InvariantCulture,
+                        [System.Globalization.DateTimeStyles]::RoundtripKind
+                    ).ToUnixTimeMilliseconds()
+                } catch { continue }
+
+                $resetsAt = [long]$event.quotaLimits.resetsAt
+                if ($observedAtMs -le $AfterMs -or $resetsAt -le $now) { continue }
+
+                $override = [pscustomobject]@{
+                    usedPercent = 100
+                    windowDurationMins = if ($event.quotaLimits.rateLimitType -eq 'five_hour') { 300 } else { 10080 }
+                    resetsAt = $resetsAt
+                    observedAtMs = $observedAtMs
+                }
+
+                if ($event.quotaLimits.rateLimitType -eq 'five_hour') {
+                    if ($null -eq $primary -or $observedAtMs -gt $primary.observedAtMs) { $primary = $override }
+                } elseif ($event.quotaLimits.rateLimitType -eq 'seven_day') {
+                    if ($null -eq $secondary -or $observedAtMs -gt $secondary.observedAtMs) { $secondary = $override }
+                }
+            }
+        }
+    } catch {}
+
+    return [pscustomobject]@{ Primary = $primary; Secondary = $secondary }
 }
 
 # Claude Code tient ses compteurs a jour dans ~/.claude.json. On lit cette
@@ -247,12 +345,30 @@ function Get-ClaudeLiveQuota {
         $fragment = Get-JsonObjectFragment -Text $raw -Key 'cachedUsageUtilization'
         if (-not $fragment) { return $null }
 
-        $usage = ($fragment | ConvertFrom-Json).utilization
+        $snapshot = $fragment | ConvertFrom-Json
+        $usage = $snapshot.utilization
         if ($null -eq $usage) { return $null }
 
+        $fetchedAtMs = if ($null -ne $snapshot.fetchedAtMs) {
+            [long]$snapshot.fetchedAtMs
+        } else {
+            ([DateTimeOffset](Get-Item -LiteralPath $path).LastWriteTimeUtc).ToUnixTimeMilliseconds()
+        }
+
+        $primary = ConvertTo-QuotaWindow -Window $usage.five_hour -DurationMins 300 -ObservedAtMs $fetchedAtMs
+        $secondary = ConvertTo-QuotaWindow -Window $usage.seven_day -DurationMins 10080 -ObservedAtMs $fetchedAtMs
+        $overrides = Get-ClaudeRateLimitOverrides -AfterMs $fetchedAtMs
+        if ($null -ne $overrides.Primary) { $primary = $overrides.Primary }
+        if ($null -ne $overrides.Secondary) { $secondary = $overrides.Secondary }
+
+        $observed = @($primary, $secondary) |
+            Where-Object { $null -ne $_ -and [long]$_.observedAtMs -gt 0 } |
+            ForEach-Object { [long]$_.observedAtMs }
+
         return [pscustomobject]@{
-            Primary = ConvertTo-QuotaWindow -Window $usage.five_hour -DurationMins 300
-            Secondary = ConvertTo-QuotaWindow -Window $usage.seven_day -DurationMins 10080
+            Primary = $primary
+            Secondary = $secondary
+            ObservedAtMs = if ($observed.Count -gt 0) { ($observed | Measure-Object -Minimum).Minimum } else { 0 }
         }
     } catch {
         return $null
@@ -268,13 +384,20 @@ function Get-ClaudeCachedQuota {
         $cache = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
+        $observedAtMs = if ($null -ne $cache.fetchedAtMs) {
+            [long]$cache.fetchedAtMs
+        } else {
+            ([DateTimeOffset](Get-Item -LiteralPath $path).LastWriteTimeUtc).ToUnixTimeMilliseconds()
+        }
+
         return [pscustomobject]@{
             Primary = if ($null -ne $cache.fiveHourUsed -and [long]$cache.fiveHourResetsAt -gt $now) {
-                [pscustomobject]@{ usedPercent = $cache.fiveHourUsed; windowDurationMins = 300; resetsAt = $cache.fiveHourResetsAt }
+                [pscustomobject]@{ usedPercent = $cache.fiveHourUsed; windowDurationMins = 300; resetsAt = $cache.fiveHourResetsAt; observedAtMs = $observedAtMs }
             } else { $null }
             Secondary = if ($null -ne $cache.sevenDayUsed -and [long]$cache.sevenDayResetsAt -gt $now) {
-                [pscustomobject]@{ usedPercent = $cache.sevenDayUsed; windowDurationMins = 10080; resetsAt = $cache.sevenDayResetsAt }
+                [pscustomobject]@{ usedPercent = $cache.sevenDayUsed; windowDurationMins = 10080; resetsAt = $cache.sevenDayResetsAt; observedAtMs = $observedAtMs }
             } else { $null }
+            ObservedAtMs = $observedAtMs
         }
     } catch {
         return $null
@@ -289,6 +412,8 @@ function Get-ClaudeQuotaText {
         $quota = Get-ClaudeCachedQuota
     }
     if ($null -eq $quota) { return '' }
+
+    $script:ClaudeQuotaObservedAtMs = [long]$quota.ObservedAtMs
 
     return Format-QuotaText -Primary $quota.Primary -Secondary $quota.Secondary -ForAgent 'Claude' -ApplyPreference:$ApplyPreference
 }
@@ -316,6 +441,7 @@ if ($CacheClaudeQuota) {
                 [double]$rateLimits.seven_day.utilization
             } else { $null }
             [ordered]@{
+                fetchedAtMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
                 fiveHourUsed = $fiveHourUsed
                 fiveHourResetsAt = if ($null -ne $rateLimits.five_hour.resets_at) { $rateLimits.five_hour.resets_at } else { $rateLimits.five_hour.resetsAt }
                 sevenDayUsed = $sevenDayUsed
@@ -326,8 +452,18 @@ if ($CacheClaudeQuota) {
     exit 0
 }
 
+if ($SnapshotQuota) {
+    $script:CurrentPrimaryUsed = $null
+    $null = if ($Agent -eq 'Codex') { Get-CodexQuotaText } else { Get-ClaudeQuotaText }
+    $null = Update-TaskQuotaBaseline -ForAgent $Agent -CurrentUsed $script:CurrentPrimaryUsed
+    exit 0
+}
+
 if ($PrintQuota) {
     $value = if ($Agent -eq 'Codex') { Get-CodexQuotaText } else { Get-ClaudeQuotaText }
+    if ($Agent -eq 'Claude' -and [long]$script:ClaudeQuotaObservedAtMs -gt 0) {
+        [Console]::Out.WriteLine('VSignal-Source-At: {0}' -f [long]$script:ClaudeQuotaObservedAtMs)
+    }
     if ($value) { [Console]::Out.WriteLine($value) }
     exit 0
 }
@@ -375,16 +511,24 @@ if (-not $Display) {
     # Le panneau VS Code montre tout ; la popup ne montre que les fenetres cochees,
     # sauf l'alerte de quota qui doit forcement afficher la barre concernee.
     $filter = $State -ne 'Quota'
+    $script:CurrentPrimaryUsed = $null
     $QuotaText = if ($Agent -eq 'Codex') {
         Get-CodexQuotaText -ApplyPreference:$filter
     } else {
         Get-ClaudeQuotaText -ApplyPreference:$filter
+    }
+    if ($State -notin @('Quota', 'Reset')) {
+        $calculatedDelta = Update-TaskQuotaBaseline -ForAgent $Agent -CurrentUsed $script:CurrentPrimaryUsed
+        $preference = Get-PopupPreference
+        $percentField = '{0}TaskPercent' -f $Agent
+        if ($preference[$percentField]) { $TaskDelta = $calculatedDelta }
     }
 
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $arguments = '-NoProfile -NonInteractive -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Agent "{1}" -State "{2}"' -f $PSCommandPath, $Agent, $State
     if ($QuotaText) { $arguments += ' -QuotaText "{0}"' -f $QuotaText }
     if ($Detail) { $arguments += ' -Detail "{0}"' -f $Detail }
+    if ($TaskDelta) { $arguments += ' -TaskDelta "{0}"' -f $TaskDelta }
     $arguments += ' -Display'
     Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden
     exit 0
@@ -447,7 +591,7 @@ function New-Label {
     return $block
 }
 
-# Tracés officiels des marques Claude et Codex, repris des extensions
+# Traces officiels des marques Claude et Codex, repris des extensions
 # anthropic.claude-code et openai.chatgpt. Ils identifient les produits ;
 # ils appartiennent a Anthropic et OpenAI et ne sont pas couverts par la
 # licence MIT de VSignal.
@@ -499,60 +643,73 @@ $toneNeutral = '#FFFFFF'
 # Couleur de marque, utilisee uniquement pour dessiner le logo.
 $agentMarkInk = if ($Agent -eq 'Claude') { '#D97757' } else { '#FFFFFF' }
 
-$stateInfo = switch ($State) {
-    'Quota' {
-        @{
-            Tone = $toneAlert
-            Title = '{0} : quota bas' -f $Agent
-            Detail = 'La limite approche'
-        }
-    }
-    'Reset' {
-        @{
-            Tone = $toneOk
-            Title = '{0} : quota r{1}initialis{1}' -f $Agent, $eAcute
-            Detail = 'La fen{0}tre est repartie {1} z{2}ro' -f $eCirc, $aGrave, $eAcute
-        }
-    }
-    'Question' {
-        @{
-            Tone = $toneWarn
-            Title = '{0} attend ta r{1}ponse' -f $Agent, $eAcute
-            Detail = 'Une question t{0}attend dans VS Code' -f [char]0x2019
-        }
-    }
-    'Blocked' {
-        @{
-            Tone = $toneAlert
-            Title = '{0} a besoin de toi' -f $Agent
-            Detail = 'T{0}che en pause' -f $aGrave
-        }
-    }
-    'Tested' {
-        @{
-            Tone = $toneOk
-            Title = '{0} a termin{1}' -f $Agent, $eAcute
-            Detail = 'Tests valid{0}s' -f $eAcute
-        }
-    }
-    'Code' {
-        @{
-            Tone = $toneNeutral
-            Title = '{0} a termin{1}' -f $Agent, $eAcute
-            Detail = 'Le code a {0}t{0} modifi{0}' -f $eAcute
-        }
-    }
-    default {
-        @{
-            Tone = $toneNeutral
-            Title = '{0} a termin{1}' -f $Agent, $eAcute
-            Detail = 'La r{0}ponse est pr{1}te' -f $eAcute, $eCirc
-        }
-    }
+# Les traductions viennent de popup.json, ecrit par l'extension : ce fichier
+# reste ainsi en ASCII pur et n'a pas sa propre copie des textes a maintenir.
+# Le francais sert de repli si le fichier manque ou est incomplet.
+$loc = [ordered]@{
+    titleDone = '{0} a termin' + $eAcute
+    titleQuestion = '{0} attend ta r' + $eAcute + 'ponse'
+    titleBlocked = '{0} a besoin de toi'
+    titleQuota = '{0} : quota bas'
+    titleReset = '{0} : quota r' + $eAcute + 'initialis' + $eAcute
+    detailDone = 'La r' + $eAcute + 'ponse est pr' + $eCirc + 'te'
+    detailCode = 'Le code a ' + $eAcute + 't' + $eAcute + ' modifi' + $eAcute
+    detailTested = 'Tests valid' + $eAcute + 's'
+    detailQuestion = 'Une question t' + [char]0x2019 + 'attend dans VS Code'
+    detailBlocked = 'T' + $aGrave + 'che en pause'
+    detailQuota = 'La limite approche'
+    detailReset = 'La fen' + $eCirc + 'tre est repartie ' + $aGrave + ' z' + $eAcute + 'ro'
+    resetIn = 'reset dans {0}'
+    unitMin = 'min'
+    unitHour = 'h'
+    unitDay = 'j'
 }
 
-if ($Detail) { $stateInfo.Detail = $Detail }
+$stringsPath = Join-Path $PSScriptRoot 'popup.json'
+if (Test-Path -LiteralPath $stringsPath) {
+    try {
+        $supplied = (Get-Content -Raw -LiteralPath $stringsPath -Encoding UTF8 | ConvertFrom-Json).Strings
+        if ($null -ne $supplied) {
+            foreach ($key in @($loc.Keys)) {
+                if ($supplied.$key) { $loc[$key] = [string]$supplied.$key }
+            }
+        }
+    } catch {}
+}
 
+# Les durees circulent en unites francaises : format de transport, traduit
+# au seul moment de l'affichage.
+function ConvertTo-LocalUnits {
+    param([string]$Value)
+    $result = $Value -replace '\bmin\b', $loc.unitMin
+    $result = $result -replace '\bh\b', $loc.unitHour
+    return ($result -replace '\bj\b', $loc.unitDay)
+}
+
+$stateInfo = switch ($State) {
+    'Quota' {
+        @{ Tone = $toneAlert; Title = $loc.titleQuota -f $Agent; Detail = $loc.detailQuota }
+    }
+    'Reset' {
+        @{ Tone = $toneOk; Title = $loc.titleReset -f $Agent; Detail = $loc.detailReset }
+    }
+    'Question' {
+        @{ Tone = $toneWarn; Title = $loc.titleQuestion -f $Agent; Detail = $loc.detailQuestion }
+    }
+    'Blocked' {
+        @{ Tone = $toneAlert; Title = $loc.titleBlocked -f $Agent; Detail = $loc.detailBlocked }
+    }
+    'Tested' {
+        @{ Tone = $toneOk; Title = $loc.titleDone -f $Agent; Detail = $loc.detailTested }
+    }
+    'Code' {
+        @{ Tone = $toneNeutral; Title = $loc.titleDone -f $Agent; Detail = $loc.detailCode }
+    }
+    default {
+        @{ Tone = $toneNeutral; Title = $loc.titleDone -f $Agent; Detail = $loc.detailDone }
+    }
+}
+if ($Detail) { $stateInfo.Detail = $Detail }
 $tone = $stateInfo.Tone
 
 # --- Fenetre ---------------------------------------------------------------
@@ -597,7 +754,11 @@ $root.Orientation = [System.Windows.Controls.Orientation]::Vertical
 
 # --- En-tete : pastille d'etat, titre, sous-titre --------------------------
 $header = [System.Windows.Controls.Grid]::new()
-foreach ($width in @([System.Windows.GridLength]::Auto, [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star))) {
+foreach ($width in @(
+    [System.Windows.GridLength]::Auto,
+    [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star),
+    [System.Windows.GridLength]::Auto
+)) {
     $column = [System.Windows.Controls.ColumnDefinition]::new()
     $column.Width = $width
     $header.ColumnDefinitions.Add($column)
@@ -634,6 +795,21 @@ $null = $headerText.Children.Add($subtitle)
 [System.Windows.Controls.Grid]::SetColumn($headerText, 1)
 $null = $header.Children.Add($badge)
 $null = $header.Children.Add($headerText)
+
+if ($TaskDelta -match '^\+\d+%$') {
+    $taskBadge = [System.Windows.Controls.Border]::new()
+    $taskBadge.Background = New-Brush $toneNeutral 0.07
+    $taskBadge.BorderBrush = New-Brush $toneNeutral 0.14
+    $taskBadge.BorderThickness = [System.Windows.Thickness]::new(1)
+    $taskBadge.CornerRadius = [System.Windows.CornerRadius]::new(9)
+    $taskBadge.Padding = [System.Windows.Thickness]::new(10, 5, 10, 5)
+    $taskBadge.Margin = [System.Windows.Thickness]::new(18, 0, 0, 0)
+    $taskBadge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+    $taskBadge.Child = New-Label -Content $TaskDelta -Size 14 -Hex $titleInk -SemiBold
+    [System.Windows.Controls.Grid]::SetColumn($taskBadge, 2)
+    $null = $header.Children.Add($taskBadge)
+}
+
 $null = $root.Children.Add($header)
 
 # --- Quotas ----------------------------------------------------------------
@@ -666,7 +842,7 @@ if ($QuotaText) {
             # Pourcentage consomme : bas vaut mieux que haut.
             $barTone = if ($percent -ge 80) { $toneAlert } elseif ($percent -ge 60) { $toneWarn } else { $toneOk }
 
-            $windowLabel = New-Label -Content $entry.Groups[1].Value -Size 11 -Hex $bodyInk
+            $windowLabel = New-Label -Content (ConvertTo-LocalUnits $entry.Groups[1].Value) -Size 11 -Hex $bodyInk
             $windowLabel.MinWidth = 30
             $windowLabel.Margin = [System.Windows.Thickness]::new(1, 4, 0, 4)
 
@@ -682,7 +858,7 @@ if ($QuotaText) {
             $percentLabel.TextAlignment = [System.Windows.TextAlignment]::Right
             $percentLabel.Margin = [System.Windows.Thickness]::new(0, 4, 0, 4)
 
-            $resetContent = if ($resetIn) { 'reset dans {0}' -f $resetIn } else { '' }
+            $resetContent = if ($resetIn) { $loc.resetIn -f (ConvertTo-LocalUnits $resetIn) } else { '' }
             $resetLabel = New-Label -Content $resetContent -Size 10.5 -Hex $mutedInk
             $resetLabel.Margin = [System.Windows.Thickness]::new(14, 4, 0, 4)
 

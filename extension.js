@@ -26,39 +26,255 @@ const MANAGED_FRAGMENTS = [
   '.vsignal\\agent-done.ps1',
   '.agent-notifications\\agent-done.ps1'
 ];
-// Fenetres de quota affichables dans les popups. Le panneau, lui, montre tout.
-const POPUP_PREFERENCES = [
-  { key: 'popup.claude.fiveHours', field: 'ClaudeShort', agent: 'Claude', label: 'Claude — 5 h' },
-  { key: 'popup.claude.weekly', field: 'ClaudeWeekly', agent: 'Claude', label: 'Claude — 7 j' },
-  { key: 'popup.codex.fiveHours', field: 'CodexShort', agent: 'Codex', label: 'Codex — 5 h' },
-  { key: 'popup.codex.weekly', field: 'CodexWeekly', agent: 'Codex', label: 'Codex — 7 j' }
-];
+// ---------------------------------------------------------------------------
+// Traductions. Les textes de popup partent aussi dans popup.json : le script
+// PowerShell reste ainsi en ASCII pur et n'a pas sa propre copie a maintenir.
+// ---------------------------------------------------------------------------
+const LANGUAGES = ['fr', 'en'];
+const LANGUAGE_CHOICES = ['auto', ...LANGUAGES];
 
-// Tout ce que le panneau expose sous « Paramètres », en deux groupes.
-const SETTING_GROUPS = [
-  // L'interrupteur general n'a pas a occuper le haut du panneau : on l'ouvre
-  // rarement, et il n'apprend rien tant que tout va bien.
-  { caption: 'Général', items: [{ key: 'enabled', label: 'Notifications' }] },
-  { caption: 'Quotas affichés dans les popups', items: POPUP_PREFERENCES },
-  // Regroupees par modele : le libelle reste court, donc lisible en colonne
-  // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
-  {
-    caption: 'Alertes — Claude',
-    items: [
-      { key: 'alert.lowQuota.claude', agent: 'Claude', label: 'Quota bas' },
-      { key: 'alert.reset.claude', agent: 'Claude', label: 'Remise à zéro' }
-    ]
+const STRINGS = {
+  fr: {
+    // Popup
+    titleDone: '{0} a terminé',
+    titleQuestion: '{0} attend ta réponse',
+    titleBlocked: '{0} a besoin de toi',
+    titleQuota: '{0} : quota bas',
+    titleReset: '{0} : quota réinitialisé',
+    detailDone: 'La réponse est prête',
+    detailCode: 'Le code a été modifié',
+    detailTested: 'Tests validés',
+    detailQuestion: 'Une question t’attend dans VS Code',
+    detailBlocked: 'Tâche en pause',
+    detailQuota: 'La limite approche',
+    detailReset: 'La fenêtre est repartie à zéro',
+    alertLow: 'Il reste {0} % sur la fenêtre {1}',
+    alertReset: 'La fenêtre {0} est repartie à zéro',
+    resetIn: 'reset dans {0}',
+    unitMin: 'min',
+    unitHour: 'h',
+    unitDay: 'j',
+    // Panneau
+    statusOn: 'Actif',
+    statusOff: 'En pause',
+    sectionSettings: 'Paramètres',
+    sectionActions: 'Actions',
+    groupGeneral: 'Général',
+    languageLabel: 'Langue',
+    languageAuto: 'Automatique (langue de VS Code)',
+    languageFrench: 'Français',
+    languageEnglish: 'English',
+    groupPopupQuotas: 'Quotas affichés dans les popups',
+    taskPercentageLabel: 'Coût de la tâche',
+    groupAlerts: 'Alertes',
+    notifications: 'Notifications',
+    lowQuotaLabel: 'Quota bas',
+    resetLabel: 'Remise à zéro',
+    testClaude: 'Tester Claude',
+    testCodex: 'Tester Codex',
+    repairHooks: 'Configurer / réparer les hooks',
+    removeHooks: 'Retirer les hooks',
+    refreshQuotas: 'Actualiser les quotas',
+    loadingQuotas: 'Lecture des quotas…',
+    waitingClaude: 'En attente d’une première réponse de Claude',
+    noCodex: 'Compte Codex non détecté',
+    freshNow: 'Actualisé à l’instant',
+    freshMinutes: 'Actualisé il y a {0} min',
+    freshHours: 'Actualisé il y a {0} h',
+    // Messages
+    windowsOnly: 'VSignal fonctionne uniquement sous Windows.',
+    ready: 'VSignal est prêt pour Claude et Codex.',
+    codexConflict: 'VSignal : un autre notify Codex existe déjà. Il a été conservé pour ne pas écraser ta configuration.',
+    setupFailed: 'VSignal : configuration impossible — {0}',
+    disabledWarning: 'VSignal est désactivé.',
+    enableAndTest: 'Activer et tester',
+    testFailed: 'VSignal : le test {0} a échoué — {1}',
+    testSent: 'VSignal : test {0} envoyé',
+    hooksRemoved: 'Hooks VSignal retirés.',
+    noHooks: 'Aucun hook VSignal à retirer.',
+    toggledOn: 'VSignal : notifications activées.',
+    toggledOff: 'VSignal : notifications désactivées.',
+    statusSummary: 'VSignal — notifications : {0}, script : {1}, Claude : {2}, Codex : {3}',
+    stateEnabled: 'activées',
+    stateDisabled: 'désactivées',
+    stateMissing: 'absent',
+    exitCode: 'code de sortie {0}'
   },
-  {
-    caption: 'Alertes — Codex',
-    items: [
-      { key: 'alert.lowQuota.codex', agent: 'Codex', label: 'Quota bas' },
-      { key: 'alert.reset.codex', agent: 'Codex', label: 'Remise à zéro' }
-    ]
+  en: {
+    // Popup
+    titleDone: '{0} is done',
+    titleQuestion: '{0} is waiting for you',
+    titleBlocked: '{0} needs you',
+    titleQuota: '{0}: quota running low',
+    titleReset: '{0}: quota reset',
+    detailDone: 'The answer is ready',
+    detailCode: 'The code has been changed',
+    detailTested: 'Tests passed',
+    detailQuestion: 'A question is waiting in VS Code',
+    detailBlocked: 'Task on hold',
+    detailQuota: 'The limit is getting close',
+    detailReset: 'The window is back to zero',
+    alertLow: '{0} % left on the {1} window',
+    alertReset: 'The {0} window is back to zero',
+    resetIn: 'resets in {0}',
+    unitMin: 'min',
+    unitHour: 'h',
+    unitDay: 'd',
+    // Panel
+    statusOn: 'Active',
+    statusOff: 'Paused',
+    sectionSettings: 'Settings',
+    sectionActions: 'Actions',
+    groupGeneral: 'General',
+    languageLabel: 'Language',
+    languageAuto: 'Automatic (VS Code language)',
+    languageFrench: 'Français',
+    languageEnglish: 'English',
+    groupPopupQuotas: 'Quotas shown in popups',
+    taskPercentageLabel: 'Task cost',
+    groupAlerts: 'Alerts',
+    notifications: 'Notifications',
+    lowQuotaLabel: 'Low quota',
+    resetLabel: 'Quota reset',
+    testClaude: 'Test Claude',
+    testCodex: 'Test Codex',
+    repairHooks: 'Set up / repair hooks',
+    removeHooks: 'Remove hooks',
+    refreshQuotas: 'Refresh quotas',
+    loadingQuotas: 'Reading quotas…',
+    waitingClaude: 'Waiting for a first reply from Claude',
+    noCodex: 'No Codex account detected',
+    freshNow: 'Updated just now',
+    freshMinutes: 'Updated {0} min ago',
+    freshHours: 'Updated {0} h ago',
+    // Messages
+    windowsOnly: 'VSignal only runs on Windows.',
+    ready: 'VSignal is ready for Claude and Codex.',
+    codexConflict: 'VSignal: another Codex notify entry already exists. It was kept so your configuration is not overwritten.',
+    setupFailed: 'VSignal: setup failed — {0}',
+    disabledWarning: 'VSignal is disabled.',
+    enableAndTest: 'Enable and test',
+    testFailed: 'VSignal: the {0} test failed — {1}',
+    testSent: 'VSignal: {0} test sent',
+    hooksRemoved: 'VSignal hooks removed.',
+    noHooks: 'No VSignal hook to remove.',
+    toggledOn: 'VSignal: notifications enabled.',
+    toggledOff: 'VSignal: notifications disabled.',
+    statusSummary: 'VSignal — notifications: {0}, script: {1}, Claude: {2}, Codex: {3}',
+    stateEnabled: 'enabled',
+    stateDisabled: 'disabled',
+    stateMissing: 'missing',
+    exitCode: 'exit code {0}'
   }
+};
+
+// Les textes que le script PowerShell doit connaitre pour composer ses popups.
+const POPUP_STRING_KEYS = [
+  'titleDone', 'titleQuestion', 'titleBlocked', 'titleQuota', 'titleReset',
+  'detailDone', 'detailCode', 'detailTested', 'detailQuestion', 'detailBlocked',
+  'detailQuota', 'detailReset', 'resetIn', 'unitMin', 'unitHour', 'unitDay'
 ];
 
-const SETTING_KEYS = SETTING_GROUPS.flatMap(group => group.items.map(item => item.key));
+function currentLanguage() {
+  const choice = vscode.workspace.getConfiguration('vsignal').get('language', 'auto');
+  if (LANGUAGES.includes(choice)) return choice;
+
+  // « auto » suit la langue de VS Code, et retombe sur l'anglais ailleurs.
+  const environment = String(vscode.env.language || '').toLowerCase();
+  return environment.startsWith('fr') ? 'fr' : 'en';
+}
+
+function t() {
+  return STRINGS[currentLanguage()] || STRINGS.en;
+}
+
+function format(template, ...values) {
+  return values.reduce(
+    (text, value, index) => text.split('{' + index + '}').join(String(value)),
+    String(template)
+  );
+}
+
+// '5 h', '1 j 10 h' ou '30 min' sont transportes en unites francaises : elles
+// sont traduites au moment de l'affichage, pour ne pas casser les expressions
+// qui analysent ce format.
+function localizeDuration(text, strings) {
+  return String(text)
+    .replace(/\bmin\b/g, strings.unitMin)
+    .replace(/\bh\b/g, strings.unitHour)
+    .replace(/\bj\b/g, strings.unitDay);
+}
+
+// Fenetres de quota affichables dans les popups. Le panneau, lui, montre tout.
+// Le libelle de fenetre reste en unites francaises : c'est le format de
+// transport, traduit seulement a l'affichage.
+const POPUP_PREFERENCES = [
+  { key: 'popup.claude.fiveHours', field: 'ClaudeShort', agent: 'Claude', window: '5 h' },
+  { key: 'popup.claude.weekly', field: 'ClaudeWeekly', agent: 'Claude', window: '7 j' },
+  { key: 'popup.codex.fiveHours', field: 'CodexShort', agent: 'Codex', window: '5 h' },
+  { key: 'popup.codex.weekly', field: 'CodexWeekly', agent: 'Codex', window: '7 j' }
+];
+
+const TASK_PERCENT_PREFERENCES = [
+  { key: 'popup.claude.taskPercentage', field: 'ClaudeTaskPercent', agent: 'Claude' },
+  { key: 'popup.codex.taskPercentage', field: 'CodexTaskPercent', agent: 'Codex' }
+];
+
+const ALERT_PREFERENCES = [
+  { key: 'alert.lowQuota.claude', agent: 'Claude', label: 'lowQuotaLabel' },
+  { key: 'alert.reset.claude', agent: 'Claude', label: 'resetLabel' },
+  { key: 'alert.lowQuota.codex', agent: 'Codex', label: 'lowQuotaLabel' },
+  { key: 'alert.reset.codex', agent: 'Codex', label: 'resetLabel' }
+];
+
+const SETTING_KEYS = ['enabled']
+  .concat(POPUP_PREFERENCES.map(item => item.key))
+  .concat(TASK_PERCENT_PREFERENCES.map(item => item.key))
+  .concat(ALERT_PREFERENCES.map(item => item.key));
+
+// Tout ce que le panneau expose sous « Paramètres ».
+function settingGroups(strings) {
+  const forAgent = agent => ALERT_PREFERENCES
+    .filter(item => item.agent === agent)
+    .map(item => ({ key: item.key, agent, label: strings[item.label] }));
+
+  return [
+    // L'interrupteur general n'a pas a occuper le haut du panneau : on l'ouvre
+    // rarement, et il n'apprend rien tant que tout va bien.
+    {
+      caption: strings.groupGeneral,
+      items: [
+        { key: 'enabled', label: strings.notifications },
+        {
+          key: 'language',
+          kind: 'select',
+          label: strings.languageLabel,
+          options: [
+            { value: 'auto', label: strings.languageAuto },
+            { value: 'fr', label: strings.languageFrench },
+            { value: 'en', label: strings.languageEnglish }
+          ]
+        }
+      ]
+    },
+    {
+      caption: strings.groupPopupQuotas,
+      items: POPUP_PREFERENCES.map(item => ({
+        key: item.key,
+        agent: item.agent,
+        label: item.agent + ' — ' + localizeDuration(item.window, strings)
+      })).concat(TASK_PERCENT_PREFERENCES.map(item => ({
+        key: item.key,
+        agent: item.agent,
+        label: item.agent + ' — ' + strings.taskPercentageLabel
+      })))
+    },
+    // Regroupees par modele : le libelle reste court, donc lisible en colonne
+    // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
+    { caption: strings.groupAlerts + ' — Claude', items: forAgent('Claude') },
+    { caption: strings.groupAlerts + ' — Codex', items: forAgent('Codex') }
+  ];
+}
 
 let controlPanelProvider;
 
@@ -100,6 +316,16 @@ function writePopupPreferences() {
   for (const preference of POPUP_PREFERENCES) {
     wanted[preference.field] = config.get(preference.key, true);
   }
+  for (const preference of TASK_PERCENT_PREFERENCES) {
+    wanted[preference.field] = config.get(preference.key, true);
+  }
+
+  // Le script PowerShell reste en ASCII pur : plutot que d'y dupliquer les
+  // traductions, on lui livre les phrases dont il a besoin.
+  const strings = t();
+  wanted.Lang = currentLanguage();
+  wanted.Strings = {};
+  for (const key of POPUP_STRING_KEYS) wanted.Strings[key] = strings[key];
 
   const serialized = `${JSON.stringify(wanted, null, 2)}
 `;
@@ -119,7 +345,7 @@ function applyEnabledState(enabled) {
   if (enabled) {
     if (fs.existsSync(DISABLED_PATH)) fs.unlinkSync(DISABLED_PATH);
   } else {
-    fs.writeFileSync(DISABLED_PATH, 'Popups désactivées depuis VS Code.\n', 'utf8');
+    fs.writeFileSync(DISABLED_PATH, 'Disabled by VSignal.\n', 'utf8');
   }
   if (controlPanelProvider) controlPanelProvider.refresh();
 }
@@ -130,7 +356,7 @@ async function toggleEnabled() {
     .getConfiguration('vsignal')
     .update('enabled', enabled, vscode.ConfigurationTarget.Global);
   applyEnabledState(enabled);
-  vscode.window.showInformationMessage(`VSignal : notifications ${enabled ? 'activées' : 'désactivées'}.`);
+  vscode.window.showInformationMessage(enabled ? t().toggledOn : t().toggledOff);
 }
 
 function writeAtomic(filePath, content) {
@@ -283,7 +509,7 @@ function configureCodex() {
 
 async function setup(context, interactive = false) {
   if (process.platform !== 'win32') {
-    if (interactive) vscode.window.showErrorMessage('VSignal fonctionne uniquement sous Windows.');
+    if (interactive) vscode.window.showErrorMessage(t().windowsOnly);
     return;
   }
 
@@ -295,14 +521,12 @@ async function setup(context, interactive = false) {
     if (controlPanelProvider) controlPanelProvider.refresh();
 
     if (codex.conflict) {
-      vscode.window.showWarningMessage(
-        'VSignal : un autre notify Codex existe déjà. Il a été conservé pour ne pas écraser ta configuration.'
-      );
+      vscode.window.showWarningMessage(t().codexConflict);
     } else if (interactive || scriptChanged || claudeChanged || codex.changed) {
-      vscode.window.showInformationMessage('VSignal est prêt pour Claude et Codex.');
+      vscode.window.showInformationMessage(t().ready);
     }
   } catch (error) {
-    vscode.window.showErrorMessage(`VSignal : configuration impossible — ${error.message}`);
+    vscode.window.showErrorMessage(format(t().setupFailed, error.message));
   }
 }
 
@@ -331,24 +555,22 @@ function runPopup(args, onFailure) {
   });
   child.on('exit', code => {
     if (!onFailure || (code === 0 && !stderr.trim())) return;
-    onFailure(stderr.trim().split(/\r?\n/)[0] || `code de sortie ${code}`);
+    onFailure(stderr.trim().split(/\r?\n/)[0] || format(t().exitCode, code));
   });
 }
 
 function showTest(agent) {
   runPopup(['-Agent', agent, '-State', 'Done'], message => {
-    vscode.window.showErrorMessage(`VSignal : le test ${agent} a échoué — ${message}`);
+    vscode.window.showErrorMessage(format(t().testFailed, agent, message));
   });
-  vscode.window.setStatusBarMessage(`VSignal : test ${agent} envoyé`, 3000);
+  vscode.window.setStatusBarMessage(format(t().testSent, agent), 3000);
 }
 
 async function runTest(context, agent) {
   if (!isEnabled()) {
-    const choice = await vscode.window.showWarningMessage(
-      'VSignal est désactivé.',
-      'Activer et tester'
-    );
-    if (choice !== 'Activer et tester') return;
+    const strings = t();
+    const choice = await vscode.window.showWarningMessage(strings.disabledWarning, strings.enableAndTest);
+    if (choice !== strings.enableAndTest) return;
     await vscode.workspace
       .getConfiguration('vsignal')
       .update('enabled', true, vscode.ConfigurationTarget.Global);
@@ -374,9 +596,43 @@ function readQuota(agent) {
         '-PrintQuota'
       ],
       { windowsHide: true, timeout: 9000, encoding: 'utf8' },
-      (error, stdout) => resolve(error ? '' : String(stdout || '').trim())
+      (error, stdout) => {
+        if (error) {
+          resolve({ text: '', sourceAt: 0 });
+          return;
+        }
+
+        const text = String(stdout || '').trim();
+        const marker = text.match(/^VSignal-Source-At:\s*(\d+)\s*$/m);
+        resolve({
+          text,
+          // Codex vient d'une lecture directe. Pour Claude, le script fournit
+          // l'heure de la donnee elle-meme, pas celle de cette relecture.
+          sourceAt: marker ? Number(marker[1]) : Date.now()
+        });
+      }
     );
   });
+}
+
+function snapshotTaskQuota(agent) {
+  if (!fs.existsSync(SCRIPT_PATH)) return;
+  const child = spawn(
+    POWERSHELL,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      SCRIPT_PATH,
+      '-Agent',
+      agent,
+      '-SnapshotQuota'
+    ],
+    { windowsHide: true, stdio: 'ignore' }
+  );
+  child.on('error', () => {});
 }
 
 function parseQuota(text) {
@@ -392,30 +648,76 @@ function parseQuota(text) {
   return values;
 }
 
+const QUOTA_REFRESH_INTERVAL_MS = 60 * 1000;
+const QUOTA_TRIGGER_THROTTLE_MS = 20 * 1000;
+let quotaRefreshInFlight;
+let quotaRefreshQueued = false;
+let quotaTriggeredAt = 0;
+
+async function performQuotaRefresh(context) {
+  // Claude et Codex partent toujours ensemble. Le releve n'est publie qu'une
+  // fois les deux reponses revenues, ce qui donne un instantane coherent.
+  const [claude, codex] = await Promise.all([readQuota('Claude'), readQuota('Codex')]);
+  const snapshot = {
+    Claude: { values: parseQuota(claude.text), sourceAt: claude.sourceAt },
+    Codex: { values: parseQuota(codex.text), sourceAt: codex.sourceAt }
+  };
+
+  if (controlPanelProvider) controlPanelProvider.applyQuotaSnapshot(snapshot);
+  await checkQuotaEvents(context, snapshot);
+  return snapshot;
+}
+
+// Tous les declencheurs partagent la meme lecture. Si Claude change pendant
+// une lecture deja lancee, un unique second passage est mis en attente ; les
+// clics, le minuteur et le panneau ne peuvent donc jamais empiler les process.
+function refreshAllQuotas(context, rerunIfBusy = false) {
+  if (quotaRefreshInFlight) {
+    if (rerunIfBusy) quotaRefreshQueued = true;
+    return quotaRefreshInFlight;
+  }
+
+  quotaRefreshInFlight = (async () => {
+    do {
+      quotaRefreshQueued = false;
+      try {
+        await performQuotaRefresh(context);
+      } catch (error) {
+        // Le minuteur doit survivre a toute erreur inattendue de stockage ou
+        // de publication. Les erreurs normales de lecture sont deja converties
+        // en resultat vide par readQuota et conservent les dernieres valeurs.
+        console.error('VSignal quota refresh failed:', error);
+        if (controlPanelProvider) controlPanelProvider.postQuotas(false);
+      }
+    } while (quotaRefreshQueued);
+  })().finally(() => {
+    quotaRefreshInFlight = undefined;
+  });
+
+  return quotaRefreshInFlight;
+}
+
+function refreshAllQuotasThrottled(context) {
+  const now = Date.now();
+  if (now - quotaTriggeredAt < QUOTA_TRIGGER_THROTTLE_MS) return;
+  quotaTriggeredAt = now;
+  void refreshAllQuotas(context, true);
+}
+
 // Le JSON echappe les antislashs des chemins Windows : chercher le fragment
 // dans le texte brut du fichier ne marche jamais. Il faut comparer les
 // commandes une fois decodees.
 function showQuotaAlert(agent, value) {
+  const strings = t();
   const remaining = Math.max(0, 100 - value.percent);
-  runPopup([
-    '-Agent',
-    agent,
-    '-State',
-    'Quota',
-    '-Detail',
-    `Il reste ${remaining} % sur la fenêtre ${value.window}`
-  ]);
+  const window = localizeDuration(value.window, strings);
+  runPopup(['-Agent', agent, '-State', 'Quota', '-Detail', format(strings.alertLow, remaining, window)]);
 }
 
 function showResetAlert(agent, value) {
-  runPopup([
-    '-Agent',
-    agent,
-    '-State',
-    'Reset',
-    '-Detail',
-    `La fenêtre ${value.window} est repartie à zéro`
-  ]);
+  const strings = t();
+  const window = localizeDuration(value.window, strings);
+  runPopup(['-Agent', agent, '-State', 'Reset', '-Detail', format(strings.alertReset, window)]);
 }
 
 // Un pourcentage consomme ne peut que monter a l'interieur d'une fenetre :
@@ -426,7 +728,7 @@ const RESET_MARGIN = 5;
 // Les deux evenements se declenchent sur transition, jamais en continu. Le
 // dernier releve est conserve d'une session a l'autre pour que redemarrer VS
 // Code ne provoque pas une volee de notifications.
-async function checkQuotaEvents(context) {
+async function checkQuotaEvents(context, snapshot) {
   if (!isEnabled()) return;
 
   const config = vscode.workspace.getConfiguration('vsignal');
@@ -437,7 +739,7 @@ async function checkQuotaEvents(context) {
     const wantsLow = config.get(`alert.lowQuota.${suffix}`, true);
     const wantsReset = config.get(`alert.reset.${suffix}`, true);
 
-    const values = parseQuota(await readQuota(agent));
+    const values = snapshot[agent].values;
     if (!values.length) continue;
 
     const key = `quotaSeen.${agent}`;
@@ -525,7 +827,7 @@ function removeManagedHooks() {
     }
   }
 
-  vscode.window.showInformationMessage(changed ? 'Hooks VSignal retirés.' : 'Aucun hook VSignal à retirer.');
+  vscode.window.showInformationMessage(changed ? t().hooksRemoved : t().noHooks);
   if (controlPanelProvider) controlPanelProvider.refresh();
 }
 
@@ -742,6 +1044,21 @@ body {
 
 .row .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.language-select {
+  flex: 0 1 154px;
+  min-width: 0;
+  max-width: 58%;
+  height: 25px;
+  padding: 1px 22px 1px 7px;
+  color: var(--vscode-settings-dropdownForeground, var(--vscode-foreground));
+  background: var(--vscode-settings-dropdownBackground, var(--vscode-dropdown-background));
+  border: 1px solid var(--vscode-settings-dropdownBorder, var(--vscode-dropdown-border));
+  border-radius: 3px;
+  font: inherit;
+}
+
+.language-select:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
 /* Le fournisseur se lit sur une pastille a ses couleurs plutot que sur un
    point de sept pixels que rien n'explique. */
 .badge {
@@ -928,6 +1245,20 @@ button.action.quiet:hover { color: var(--vscode-foreground); background: rgba(12
 const PANEL_SCRIPT = `
 const vscode = acquireVsCodeApi();
 
+// Textes fournis par l'extension : le panneau n'en connait aucun en dur.
+let T = {};
+
+function fmt(template, ...values) {
+  return values.reduce(
+    (text, value, index) => text.split('{' + index + '}').join(String(value)),
+    String(template || '')
+  );
+}
+
+function applyText(selector, text) {
+  for (const node of document.querySelectorAll(selector)) node.textContent = text;
+}
+
 function send(message) { vscode.postMessage(message); }
 
 function el(tag, className, text) {
@@ -946,9 +1277,30 @@ function toggle(checked, onChange) {
   return button;
 }
 
+function languagePicker(value, options) {
+  const picker = el('select', 'language-select');
+  for (const entry of options || []) {
+    const option = el('option', null, entry.label);
+    option.value = entry.value;
+    option.selected = entry.value === value;
+    picker.appendChild(option);
+  }
+  picker.addEventListener('change', () => send({ type: 'language', value: picker.value }));
+  return picker;
+}
+
 // Pourcentage consomme : la couleur dit la gravite, pas le modele. Peindre la
 // bande confortable aux couleurs de l'agent faisait passer un quota sain pour
 // une alerte.
+// Les durees circulent en unites francaises : c'est le format de transport,
+// traduit au seul moment de l'affichage.
+function localize(text) {
+  return String(text)
+    .replace(/\bmin\b/g, T.unitMin || 'min')
+    .replace(/\bh\b/g, T.unitHour || 'h')
+    .replace(/\bj\b/g, T.unitDay || 'j');
+}
+
 // '1 j 10 h' devient '1j10h', '27 min' devient '27m' : de quoi garder le
 // delai lisible meme dans une colonne tres etroite.
 function tighten(reset) {
@@ -962,9 +1314,25 @@ function barColor(percent) {
 }
 
 function renderStatus(state) {
+  T = state.strings || T;
+  document.documentElement.lang = state.language || 'en';
+
   const pill = document.getElementById('status-pill');
-  pill.textContent = state.enabled ? 'Actif' : 'En pause';
+  pill.textContent = state.enabled ? T.statusOn : T.statusOff;
   pill.className = 'pill ' + (state.enabled ? 'on' : 'off');
+
+  applyText('[data-text="sectionSettings"]', T.sectionSettings);
+  applyText('[data-text="sectionActions"]', T.sectionActions);
+  applyText('[data-text="testClaude"]', T.testClaude);
+  applyText('[data-text="testCodex"]', T.testCodex);
+  applyText('[data-text="repairHooks"]', T.repairHooks);
+  applyText('[data-text="removeHooks"]', T.removeHooks);
+
+  const refreshButton = document.getElementById('refresh');
+  if (refreshButton) {
+    refreshButton.title = T.refreshQuotas;
+    refreshButton.setAttribute('aria-label', T.refreshQuotas);
+  }
 
   const prefs = document.getElementById('prefs');
   prefs.innerHTML = '';
@@ -976,7 +1344,11 @@ function renderStatus(state) {
       const name = el('div', 'name');
       name.appendChild(el('span', null, item.label));
       row.appendChild(name);
-      row.appendChild(toggle(item.value, value => send({ type: 'pref', key: item.key, value })));
+      if (item.kind === 'select') {
+        row.appendChild(languagePicker(item.value, item.options));
+      } else {
+        row.appendChild(toggle(item.value, value => send({ type: 'pref', key: item.key, value })));
+      }
       block.appendChild(row);
     }
     prefs.appendChild(block);
@@ -1023,7 +1395,7 @@ function showSkeleton() {
   host.innerHTML = '';
   for (let index = 0; index < 2; index++) {
     const block = el('div', 'quota-agent');
-    block.appendChild(el('div', 'muted', 'Lecture des quotas…'));
+    block.appendChild(el('div', 'muted', T.loadingQuotas || ''));
     const skeleton = el('div', 'skeleton');
     skeleton.style.marginTop = '8px';
     block.appendChild(skeleton);
@@ -1043,9 +1415,7 @@ function buildQuotas(agents) {
     block.appendChild(head);
 
     if (!entry.values.length) {
-      block.appendChild(el('div', 'muted', entry.agent === 'Claude'
-        ? 'En attente d’une première réponse de Claude'
-        : 'Compte Codex non détecté'));
+      block.appendChild(el('div', 'muted', entry.agent === 'Claude' ? T.waitingClaude : T.noCodex));
       host.appendChild(block);
       continue;
     }
@@ -1054,7 +1424,7 @@ function buildQuotas(agents) {
       const line = el('div', 'quota-line');
       const meta = el('div', 'quota-meta');
       const left = el('span', 'muted left');
-      left.appendChild(el('span', null, value.window));
+      left.appendChild(el('span', 'window'));
 
       const reset = el('span', 'reset');
       const full = el('span', 'full');
@@ -1076,7 +1446,9 @@ function buildQuotas(agents) {
       line.appendChild(track);
       block.appendChild(line);
 
-      quotaCells.set(entry.agent + '|' + value.window, { reset, full, mid, tight, right, fill });
+      quotaCells.set(entry.agent + '|' + value.window, {
+        window: left.querySelector('.window'), reset, full, mid, tight, right, fill
+      });
     }
 
     host.appendChild(block);
@@ -1091,16 +1463,19 @@ function updateQuotas(agents) {
       const cell = quotaCells.get(entry.agent + '|' + value.window);
       if (!cell) continue;
 
+      cell.window.textContent = localize(value.window);
       cell.right.textContent = value.percent + ' %';
       cell.fill.style.background = barColor(value.percent);
       cell.fill.style.width = value.percent + '%';
 
       if (value.reset) {
+        const delay = localize(value.reset);
+        const full = fmt(T.resetIn, delay);
         cell.reset.hidden = false;
-        cell.reset.title = 'reset dans ' + value.reset;
-        cell.full.textContent = '  ·  reset dans ' + value.reset;
-        cell.mid.textContent = '  ·  ' + value.reset;
-        cell.tight.textContent = ' · ' + tighten(value.reset);
+        cell.reset.title = full;
+        cell.full.textContent = '  ·  ' + full;
+        cell.mid.textContent = '  ·  ' + delay;
+        cell.tight.textContent = ' · ' + tighten(delay);
       } else {
         cell.reset.hidden = true;
       }
@@ -1124,10 +1499,10 @@ function freshnessLine() {
 function freshnessText() {
   if (!lastQuotaAt) return '';
   const seconds = Math.max(0, Math.round((Date.now() - lastQuotaAt) / 1000));
-  if (seconds < 45) return 'Actualisé à l’instant';
+  if (seconds < 45) return T.freshNow || '';
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return 'Actualisé il y a ' + minutes + ' min';
-  return 'Actualisé il y a ' + Math.round(minutes / 60) + ' h';
+  if (minutes < 60) return fmt(T.freshMinutes, minutes);
+  return fmt(T.freshHours, Math.round(minutes / 60));
 }
 
 setInterval(() => {
@@ -1170,42 +1545,15 @@ class ControlPanelProvider {
   constructor(context) {
     this.context = context;
     this.view = undefined;
-    this.quotaToken = 0;
-    this.autoRefresh = undefined;
     this.values = { Claude: null, Codex: null };
-    this.codexReadAt = 0;
-    this.throttledAt = 0;
-  }
-
-  // Relecture complete chaque minute, Codex compris. L'affichage ne bouge pas
-  // pendant la lecture : les valeurs ne sont remplacees qu'une fois arrivees.
-  startAutoRefresh() {
-    this.stopAutoRefresh();
-    this.autoRefresh = setInterval(() => this.refresh(true), 60 * 1000);
-  }
-
-  // Pour les declencheurs subis — fichier modifie, fenetre reprenant le focus
-  // — afin qu'une rafale ne se traduise pas par une rafale de lectures.
-  refreshThrottled() {
-    const now = Date.now();
-    if (now - this.throttledAt < 20 * 1000) return;
-    this.throttledAt = now;
-    this.refresh();
+    this.sourceAt = { Claude: 0, Codex: 0 };
   }
 
   isVisible() {
     return Boolean(this.view && this.view.visible);
   }
 
-  stopAutoRefresh() {
-    if (!this.autoRefresh) return;
-    clearInterval(this.autoRefresh);
-    this.autoRefresh = undefined;
-  }
-
-  dispose() {
-    this.stopAutoRefresh();
-  }
+  dispose() {}
 
   resolveWebviewView(view) {
     this.view = view;
@@ -1213,19 +1561,12 @@ class ControlPanelProvider {
     view.webview.html = this.render(view.webview);
     view.webview.onDidReceiveMessage(message => this.receive(message));
     view.onDidChangeVisibility(() => {
-      if (!view.visible) {
-        this.stopAutoRefresh();
-        return;
-      }
-      this.refresh();
-      this.startAutoRefresh();
+      if (view.visible) this.refresh();
     });
     view.onDidDispose(() => {
-      this.stopAutoRefresh();
       this.view = undefined;
     });
     this.refresh();
-    this.startAutoRefresh();
   }
 
   receive(message) {
@@ -1248,6 +1589,13 @@ class ControlPanelProvider {
       void vscode.workspace
         .getConfiguration('vsignal')
         .update(message.key, Boolean(message.value), vscode.ConfigurationTarget.Global);
+      return;
+    }
+
+    if (message.type === 'language' && LANGUAGE_CHOICES.includes(message.value)) {
+      void vscode.workspace
+        .getConfiguration('vsignal')
+        .update('language', message.value, vscode.ConfigurationTarget.Global);
     }
   }
 
@@ -1262,26 +1610,43 @@ class ControlPanelProvider {
     this.post({
       type: 'state',
       enabled: isEnabled(),
-      groups: SETTING_GROUPS.map(group => ({
+      language: currentLanguage(),
+      strings: t(),
+      groups: settingGroups(t()).map(group => ({
         caption: group.caption,
         items: group.items.map(item => ({
           key: item.key,
           label: item.label,
           agent: item.agent,
+          kind: item.kind,
+          options: item.options,
           // Pour les popups, le marqueur sur disque fait foi, pas le reglage.
-          value: item.key === 'enabled' ? isEnabled() : config.get(item.key, true)
+          value: item.key === 'enabled'
+            ? isEnabled()
+            : item.key === 'language'
+              ? config.get('language', 'auto')
+              : config.get(item.key, true)
         }))
       }))
     });
 
-    void this.loadQuotas(force);
+    if (force || (!this.values.Claude && !this.values.Codex)) this.showQuotaLoading();
+    else this.postQuotas(false);
+    void refreshAllQuotas(this.context, force);
   }
 
   postQuotas(loading) {
+    const sourceTimes = Object.entries(this.values)
+      .filter(([, values]) => Array.isArray(values) && values.length)
+      .map(([agent]) => this.sourceAt[agent])
+      .filter(value => Number.isFinite(value) && value > 0);
+
     this.post({
       type: 'quotas',
       loading: Boolean(loading),
-      at: Date.now(),
+      // La ligne de fraicheur indique la donnee la plus ancienne affichee.
+      // Relire un cache ne le fait donc plus passer pour une donnee instantanee.
+      at: sourceTimes.length ? Math.min(...sourceTimes) : 0,
       // Le panneau montre toujours les quatre fenetres, meme celles masquees
       // dans les popups.
       agents: [
@@ -1291,20 +1656,23 @@ class ControlPanelProvider {
     });
   }
 
-  async loadQuotas(force = false) {
-    const token = ++this.quotaToken;
+  showQuotaLoading() {
     const first = !this.values.Claude && !this.values.Codex;
     if (first) this.post({ type: 'quotas', loading: true });
     else this.postQuotas(true);
+  }
 
-    // Les deux lectures partent ensemble et ne sont publiees qu'une fois
-    // toutes deux revenues : un seul rafraichissement, donc aucun sursaut.
-    const [claude, codex] = await Promise.all([readQuota('Claude'), readQuota('Codex')]);
-    if (token !== this.quotaToken) return;
-
-    this.values.Claude = parseQuota(claude);
-    this.values.Codex = parseQuota(codex);
-    this.codexReadAt = Date.now();
+  applyQuotaSnapshot(snapshot) {
+    for (const agent of ['Claude', 'Codex']) {
+      const next = snapshot[agent];
+      // Une panne ponctuelle de PowerShell ou de l'app-server ne doit pas
+      // effacer une valeur connue. Au premier passage seulement, l'etat vide
+      // reste utile pour afficher le message de compte non detecte.
+      if (next.values.length || this.values[agent] === null) {
+        this.values[agent] = next.values;
+        this.sourceAt[agent] = next.sourceAt;
+      }
+    }
     this.postQuotas(false);
   }
 
@@ -1312,7 +1680,7 @@ class ControlPanelProvider {
     const nonce = createNonce();
     return [
       '<!DOCTYPE html>',
-      '<html lang="fr"><head><meta charset="UTF-8">',
+      `<html lang="${currentLanguage()}"><head><meta charset="UTF-8">`,
       '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
       `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">`,
       `<style>${PANEL_STYLE}</style></head><body>`,
@@ -1324,7 +1692,7 @@ class ControlPanelProvider {
       '</div>',
       '<div class="card quota-card">',
       '<button class="icon-button floating" id="refresh" type="button" data-command="vsignal.refreshQuotas"',
-      ' title="Actualiser les quotas" aria-label="Actualiser les quotas">',
+      ' title="Refresh quotas" aria-label="Refresh quotas">',
       '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">',
       '<path d="M13.6 7a5.7 5.7 0 1 0-.5 3.4"/><path d="M13.9 3.1v3.6h-3.6"/>',
       '</svg></button>',
@@ -1333,21 +1701,21 @@ class ControlPanelProvider {
       '<div class="section">',
       '<button class="section-toggle" type="button" data-target="prefs" aria-expanded="true">',
       '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
-      '<span>Paramètres</span>',
+      '<span data-text="sectionSettings"></span>',
       '</button>',
       '</div>',
       '<div class="card flush" id="prefs"></div>',
       '<div class="section">',
       '<button class="section-toggle" type="button" data-target="actions" aria-expanded="true">',
       '<svg class="chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>',
-      '<span>Actions</span>',
+      '<span data-text="sectionActions"></span>',
       '</button>',
       '</div>',
       '<div class="actions" id="actions">',
-      '<button class="action primary" data-command="vsignal.testClaude" type="button">Tester Claude</button>',
-      '<button class="action primary" data-command="vsignal.testCodex" type="button">Tester Codex</button>',
-      '<button class="action wide" data-command="vsignal.setup" type="button">Configurer / réparer les hooks</button>',
-      '<button class="action quiet" data-command="vsignal.removeHooks" type="button">Retirer les hooks</button>',
+      '<button class="action primary" data-command="vsignal.testClaude" type="button" data-text="testClaude"></button>',
+      '<button class="action primary" data-command="vsignal.testCodex" type="button" data-text="testCodex"></button>',
+      '<button class="action wide" data-command="vsignal.setup" type="button" data-text="repairHooks"></button>',
+      '<button class="action quiet" data-command="vsignal.removeHooks" type="button" data-text="removeHooks"></button>',
       '</div>',
       `<script nonce="${nonce}">${PANEL_SCRIPT}</script>`,
       '</body></html>'
@@ -1357,7 +1725,6 @@ class ControlPanelProvider {
 
 function activate(context) {
   applyEnabledState(configuredEnabled());
-  let scheduleQuotaWatch = () => {};
   writePopupPreferences();
   controlPanelProvider = new ControlPanelProvider(context);
   context.subscriptions.push(
@@ -1365,13 +1732,23 @@ function activate(context) {
       webviewOptions: { retainContextWhenHidden: true }
     }),
     vscode.commands.registerCommand('vsignal.toggle', toggleEnabled),
-    vscode.commands.registerCommand('vsignal.refreshQuotas', () => controlPanelProvider.refresh(true)),
+    vscode.commands.registerCommand('vsignal.refreshQuotas', () => {
+      if (controlPanelProvider) controlPanelProvider.showQuotaLoading();
+      void refreshAllQuotas(context, true);
+    }),
     vscode.commands.registerCommand('vsignal.setup', () => setup(context, true)),
     vscode.commands.registerCommand('vsignal.testClaude', () => runTest(context, 'Claude')),
     vscode.commands.registerCommand('vsignal.testCodex', () => runTest(context, 'Codex')),
     vscode.commands.registerCommand('vsignal.showStatus', () => {
+      const strings = t();
       vscode.window.showInformationMessage(
-        `VSignal — notifications: ${isEnabled() ? 'activées' : 'désactivées'}, script: ${fs.existsSync(SCRIPT_PATH) ? 'OK' : 'absent'}, Claude: ${hasClaudeHook() ? 'OK' : 'absent'}, Codex: ${hasCodexHook() ? 'OK' : 'absent'}`
+        format(
+          strings.statusSummary,
+          isEnabled() ? strings.stateEnabled : strings.stateDisabled,
+          fs.existsSync(SCRIPT_PATH) ? 'OK' : strings.stateMissing,
+          hasClaudeHook() ? 'OK' : strings.stateMissing,
+          hasCodexHook() ? 'OK' : strings.stateMissing
+        )
       );
     }),
     vscode.commands.registerCommand('vsignal.removeHooks', removeManagedHooks),
@@ -1385,7 +1762,10 @@ function activate(context) {
       }
       if (event.affectsConfiguration('vsignal.alert')) {
         if (controlPanelProvider) controlPanelProvider.refresh();
-        scheduleQuotaWatch();
+      }
+      if (event.affectsConfiguration('vsignal.language')) {
+        writePopupPreferences();
+        if (controlPanelProvider) controlPanelProvider.refresh();
       }
     })
   );
@@ -1398,43 +1778,50 @@ function activate(context) {
   const claudeState = path.join(os.homedir(), '.claude.json');
   fs.watchFile(claudeState, { interval: 5000 }, (current, previous) => {
     if (current.mtimeMs === previous.mtimeMs) return;
-    if (controlPanelProvider) controlPanelProvider.refreshThrottled();
+    refreshAllQuotasThrottled(context);
   });
   context.subscriptions.push({ dispose: () => fs.unwatchFile(claudeState) });
 
+  // Un refus de quota est plus recent que le snapshot d'usage et se trouve
+  // dans le journal de session. Le suivre permet au panneau de passer a 100 %
+  // aussitot, meme si ~/.claude.json n'a pas ete reecrit.
+  const claudeProjects = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    const claudeLogWatcher = fs.watch(claudeProjects, { recursive: true }, (_event, filename) => {
+      if (!filename || !String(filename).toLowerCase().endsWith('.jsonl')) return;
+      refreshAllQuotasThrottled(context);
+    });
+    context.subscriptions.push({ dispose: () => claudeLogWatcher.close() });
+  } catch {
+    // Le dossier n'existe pas avant la premiere session Claude.
+  }
+
   context.subscriptions.push(
     vscode.window.onDidChangeWindowState(windowState => {
-      if (windowState.focused && controlPanelProvider) controlPanelProvider.refreshThrottled();
+      if (windowState.focused) refreshAllQuotasThrottled(context);
     })
   );
 
-  // Le quota Claude n'a pas besoin de ce minuteur : la surveillance de
-  // ~/.claude.json le rattrape en quelques secondes. Ce tour d'horloge sert
-  // surtout a Codex, dont chaque lecture demarre un app-server. La cadence
-  // est donc reglable plutot que devinee.
-  let quotaWatch;
-  scheduleQuotaWatch = () => {
-    clearTimeout(quotaWatch);
-    const minutes = Math.min(60, Math.max(1, Number(
-      vscode.workspace.getConfiguration('vsignal').get('alert.intervalMinutes', 5)
-    )));
-    quotaWatch = setTimeout(async () => {
-      await checkQuotaEvents(context);
-      scheduleQuotaWatch();
-    }, minutes * 60 * 1000);
-  };
+  // Boucle unique pendant toute la vie de l'hote d'extensions. Elle ne depend
+  // ni de la creation du panneau ni de sa visibilite.
+  const quotaRefreshTimer = setInterval(
+    () => void refreshAllQuotas(context),
+    QUOTA_REFRESH_INTERVAL_MS
+  );
 
   context.subscriptions.push(
     controlPanelProvider,
-    { dispose: () => clearTimeout(quotaWatch) }
+    { dispose: () => clearInterval(quotaRefreshTimer) }
   );
 
-  void checkQuotaEvents(context);
-  scheduleQuotaWatch();
-
-  if (vscode.workspace.getConfiguration('vsignal').get('autoConfigure', true)) {
-    void setup(context, false);
-  }
+  const prepare = vscode.workspace.getConfiguration('vsignal').get('autoConfigure', true)
+    ? setup(context, false)
+    : Promise.resolve();
+  void prepare.then(() => {
+    snapshotTaskQuota('Claude');
+    snapshotTaskQuota('Codex');
+    void refreshAllQuotas(context);
+  });
 }
 
 function deactivate() {

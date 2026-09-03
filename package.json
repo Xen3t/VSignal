@@ -1,8 +1,8 @@
 {
   "name": "vsignal",
   "displayName": "VSignal",
-  "description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
-  "version": "1.6.1",
+  "description": "%extension.description%",
+  "version": "1.8.0",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -69,37 +69,37 @@
     "commands": [
       {
         "command": "vsignal.toggle",
-        "title": "Activer / désactiver",
+        "title": "%command.toggle%",
         "category": "VSignal"
       },
       {
         "command": "vsignal.refreshQuotas",
-        "title": "Actualiser les quotas",
+        "title": "%command.refreshQuotas%",
         "category": "VSignal"
       },
       {
         "command": "vsignal.setup",
-        "title": "Configurer Claude et Codex",
+        "title": "%command.setup%",
         "category": "VSignal"
       },
       {
         "command": "vsignal.testClaude",
-        "title": "Tester Claude",
+        "title": "%command.testClaude%",
         "category": "VSignal"
       },
       {
         "command": "vsignal.testCodex",
-        "title": "Tester Codex",
+        "title": "%command.testCodex%",
         "category": "VSignal"
       },
       {
         "command": "vsignal.showStatus",
-        "title": "Afficher l’état",
+        "title": "%command.showStatus%",
         "category": "VSignal"
       },
       {
         "command": "vsignal.removeHooks",
-        "title": "Retirer les hooks",
+        "title": "%command.removeHooks%",
         "category": "VSignal"
       }
     ],
@@ -109,76 +109,96 @@
         "vsignal.autoConfigure": {
           "type": "boolean",
           "default": true,
-          "description": "Installe et répare automatiquement les hooks Claude/Codex au démarrage de VS Code."
+          "description": "%configuration.autoConfigure%"
         },
         "vsignal.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Active ou désactive toutes les popups Claude et Codex."
+          "description": "%configuration.enabled%"
         },
         "vsignal.popup.claude.fiveHours": {
           "type": "boolean",
           "default": true,
           "order": 1,
-          "markdownDescription": "Affiche la barre de quota **5 h** de Claude dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+          "markdownDescription": "%configuration.popup.claude.fiveHours%"
         },
         "vsignal.popup.claude.weekly": {
           "type": "boolean",
           "default": true,
           "order": 2,
-          "markdownDescription": "Affiche la barre de quota **7 j (hebdomadaire)** de Claude dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+          "markdownDescription": "%configuration.popup.claude.weekly%"
         },
         "vsignal.popup.codex.fiveHours": {
           "type": "boolean",
           "default": true,
           "order": 3,
-          "markdownDescription": "Affiche la barre de quota **5 h** de Codex dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+          "markdownDescription": "%configuration.popup.codex.fiveHours%"
         },
         "vsignal.popup.codex.weekly": {
           "type": "boolean",
           "default": true,
           "order": 4,
-          "markdownDescription": "Affiche la barre de quota **7 j (hebdomadaire)** de Codex dans les popups. Le panneau VSignal continue de l'afficher dans tous les cas."
+          "markdownDescription": "%configuration.popup.codex.weekly%"
+        },
+        "vsignal.popup.claude.taskPercentage": {
+          "type": "boolean",
+          "default": true,
+          "order": 5,
+          "markdownDescription": "%configuration.popup.claude.taskPercentage%"
+        },
+        "vsignal.popup.codex.taskPercentage": {
+          "type": "boolean",
+          "default": true,
+          "order": 6,
+          "markdownDescription": "%configuration.popup.codex.taskPercentage%"
         },
         "vsignal.alert.lowQuota.claude": {
           "type": "boolean",
           "default": true,
-          "order": 5,
-          "markdownDescription": "Affiche une popup quand une fenêtre de quota **Claude** franchit le seuil."
+          "order": 7,
+          "markdownDescription": "%configuration.alert.lowQuota.claude%"
         },
         "vsignal.alert.lowQuota.codex": {
           "type": "boolean",
           "default": true,
-          "order": 6,
-          "markdownDescription": "Affiche une popup quand une fenêtre de quota **Codex** franchit le seuil."
+          "order": 8,
+          "markdownDescription": "%configuration.alert.lowQuota.codex%"
         },
         "vsignal.alert.reset.claude": {
           "type": "boolean",
           "default": true,
-          "order": 7,
-          "markdownDescription": "Affiche une popup quand une fenêtre de quota **Claude** repart à zéro."
+          "order": 9,
+          "markdownDescription": "%configuration.alert.reset.claude%"
         },
         "vsignal.alert.reset.codex": {
           "type": "boolean",
           "default": true,
-          "order": 8,
-          "markdownDescription": "Affiche une popup quand une fenêtre de quota **Codex** repart à zéro."
+          "order": 10,
+          "markdownDescription": "%configuration.alert.reset.codex%"
         },
         "vsignal.alert.threshold": {
           "type": "number",
           "default": 90,
           "minimum": 50,
           "maximum": 100,
-          "order": 9,
-          "markdownDescription": "Pourcentage **consommé** à partir duquel prévenir. `90` déclenche l’alerte quand il ne reste plus que 10 %. S’applique aux fenêtres `5 h` et `7 j`."
+          "order": 11,
+          "markdownDescription": "%configuration.alert.threshold%"
         },
-        "vsignal.alert.intervalMinutes": {
-          "type": "number",
-          "default": 1,
-          "minimum": 1,
-          "maximum": 60,
-          "order": 10,
-          "markdownDescription": "Minutes entre deux vérifications des alertes de quota, quand le panneau est fermé. Panneau ouvert, les quotas sont relus toutes les minutes de toute façon."
+        "vsignal.language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "fr",
+            "en"
+          ],
+          "enumDescriptions": [
+            "%configuration.language.auto%",
+            "%configuration.language.fr%",
+            "%configuration.language.en%"
+          ],
+          "default": "auto",
+          "order": 0,
+          "markdownDescription": "%configuration.language%"
         }
       }
     }
