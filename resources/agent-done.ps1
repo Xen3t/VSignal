@@ -261,7 +261,7 @@ function Get-ClaudeRateLimitOverrides {
             Where-Object { ([DateTimeOffset]$_.LastWriteTimeUtc).ToUnixTimeMilliseconds() -gt $AfterMs } |
             Sort-Object LastWriteTimeUtc -Descending
 
-        foreach ($file in $files) {
+        :files foreach ($file in $files) {
             foreach ($line in @(Get-Content -LiteralPath $file.FullName -Encoding UTF8 -Tail 300 -ErrorAction SilentlyContinue)) {
                 try { $event = $line | ConvertFrom-Json } catch { continue }
                 if ($event.error -ne 'rate_limit' -or $event.quotaLimits.status -ne 'rejected') { continue }
@@ -289,6 +289,8 @@ function Get-ClaudeRateLimitOverrides {
                 } elseif ($event.quotaLimits.rateLimitType -eq 'seven_day') {
                     if ($null -eq $secondary -or $observedAtMs -gt $secondary.observedAtMs) { $secondary = $override }
                 }
+
+                if ($null -ne $primary -and $null -ne $secondary) { break files }
             }
         }
     } catch {}

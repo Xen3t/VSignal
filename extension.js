@@ -5,6 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, execFile } = require('child_process');
+const {
+  findRootAssignments,
+  removeManagedCodexNotify,
+  updateCodexNotify
+} = require('./lib/codex-config');
 
 const SCRIPT_DIR = path.join(os.homedir(), '.vsignal');
 const LEGACY_SCRIPT_DIR = path.join(os.homedir(), '.agent-notifications');
@@ -25,6 +30,15 @@ const CODEX_CONFIG = path.join(os.homedir(), '.codex', 'config.toml');
 const MANAGED_FRAGMENTS = [
   '.vsignal\\agent-done.ps1',
   '.agent-notifications\\agent-done.ps1'
+];
+const COMMANDS = [
+  'vsignal.toggle',
+  'vsignal.refreshQuotas',
+  'vsignal.setup',
+  'vsignal.testClaude',
+  'vsignal.testCodex',
+  'vsignal.showStatus',
+  'vsignal.removeHooks'
 ];
 // ---------------------------------------------------------------------------
 // Traductions. Les textes de popup partent aussi dans popup.json : le script
@@ -78,9 +92,9 @@ const STRINGS = {
     loadingQuotas: 'Lecture des quotas…',
     waitingClaude: 'En attente d’une première réponse de Claude',
     noCodex: 'Compte Codex non détecté',
-    freshNow: 'Actualisé à l’instant',
-    freshMinutes: 'Actualisé il y a {0} min',
-    freshHours: 'Actualisé il y a {0} h',
+    freshNow: 'Données à jour',
+    freshMinutes: 'Données datant de {0} min',
+    freshHours: 'Données datant de {0} h',
     // Messages
     windowsOnly: 'VSignal fonctionne uniquement sous Windows.',
     ready: 'VSignal est prêt pour Claude et Codex.',
@@ -92,6 +106,7 @@ const STRINGS = {
     testSent: 'VSignal : test {0} envoyé',
     hooksRemoved: 'Hooks VSignal retirés.',
     noHooks: 'Aucun hook VSignal à retirer.',
+    removeFailed: 'VSignal : retrait des hooks impossible — {0}',
     toggledOn: 'VSignal : notifications activées.',
     toggledOff: 'VSignal : notifications désactivées.',
     statusSummary: 'VSignal — notifications : {0}, script : {1}, Claude : {2}, Codex : {3}',
@@ -144,9 +159,9 @@ const STRINGS = {
     loadingQuotas: 'Reading quotas…',
     waitingClaude: 'Waiting for a first reply from Claude',
     noCodex: 'No Codex account detected',
-    freshNow: 'Updated just now',
-    freshMinutes: 'Updated {0} min ago',
-    freshHours: 'Updated {0} h ago',
+    freshNow: 'Data is up to date',
+    freshMinutes: 'Data is {0} min old',
+    freshHours: 'Data is {0} h old',
     // Messages
     windowsOnly: 'VSignal only runs on Windows.',
     ready: 'VSignal is ready for Claude and Codex.',
@@ -158,6 +173,7 @@ const STRINGS = {
     testSent: 'VSignal: {0} test sent',
     hooksRemoved: 'VSignal hooks removed.',
     noHooks: 'No VSignal hook to remove.',
+    removeFailed: 'VSignal: could not remove hooks — {0}',
     toggledOn: 'VSignal: notifications enabled.',
     toggledOff: 'VSignal: notifications disabled.',
     statusSummary: 'VSignal — notifications: {0}, script: {1}, Claude: {2}, Codex: {3}',
@@ -484,26 +500,13 @@ function codexNotifyLine() {
 }
 
 function configureCodex() {
-  let content = fs.existsSync(CODEX_CONFIG) ? fs.readFileSync(CODEX_CONFIG, 'utf8') : '';
+  const content = fs.existsSync(CODEX_CONFIG) ? fs.readFileSync(CODEX_CONFIG, 'utf8') : '';
   const wanted = codexNotifyLine();
-  const notifyPattern = /^\s*notify\s*=\s*\[[^\r\n]*\]\s*$/m;
-  const match = content.match(notifyPattern);
-
-  if (match && !isManagedCommand(match[0])) {
-    return { changed: false, conflict: true };
-  }
-  if (match && match[0].trim() === wanted) {
-    return { changed: false, conflict: false };
-  }
-
-  if (match) {
-    content = content.replace(notifyPattern, wanted);
-  } else {
-    content = content ? `${wanted}${os.EOL}${content}` : `${wanted}${os.EOL}`;
-  }
+  const result = updateCodexNotify(content, wanted, isManagedCommand);
+  if (result.conflict || !result.changed) return result;
 
   backupOnce(CODEX_CONFIG);
-  writeAtomic(CODEX_CONFIG, content);
+  writeAtomic(CODEX_CONFIG, result.content);
   return { changed: true, conflict: false };
 }
 
@@ -698,10 +701,19 @@ function refreshAllQuotas(context, rerunIfBusy = false) {
 }
 
 function refreshAllQuotasThrottled(context) {
+  if (!shouldRefreshQuotasInBackground()) return;
   const now = Date.now();
   if (now - quotaTriggeredAt < QUOTA_TRIGGER_THROTTLE_MS) return;
   quotaTriggeredAt = now;
   void refreshAllQuotas(context, true);
+}
+
+function shouldRefreshQuotasInBackground() {
+  if (controlPanelProvider && controlPanelProvider.isVisible()) return true;
+  if (!isEnabled()) return false;
+
+  const config = vscode.workspace.getConfiguration('vsignal');
+  return ALERT_PREFERENCES.some(preference => config.get(preference.key, true));
 }
 
 // Le JSON echappe les antislashs des chemins Windows : chercher le fragment
@@ -788,47 +800,64 @@ function hasClaudeHook() {
 function hasCodexHook() {
   if (!fs.existsSync(CODEX_CONFIG)) return false;
 
-  const match = fs.readFileSync(CODEX_CONFIG, 'utf8').match(/^\s*notify\s*=\s*\[[^\r\n]*\]\s*$/m);
-  return Boolean(match && isManagedCommand(match[0]));
+  const content = fs.readFileSync(CODEX_CONFIG, 'utf8');
+  return findRootAssignments(content, 'notify').some(assignment => isManagedCommand(assignment.raw));
 }
 
 function removeManagedHooks() {
-  let changed = false;
+  try {
+    let changed = false;
 
-  if (fs.existsSync(CLAUDE_SETTINGS)) {
-    const settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS, 'utf8').replace(/^\uFEFF/, ''));
-    if (settings.hooks && typeof settings.hooks === 'object') {
-      for (const event of ['Stop', 'PreToolUse']) {
-        if (!Array.isArray(settings.hooks[event])) continue;
-        const groups = [];
-        for (const group of settings.hooks[event]) {
-          if (!Array.isArray(group.hooks)) {
-            groups.push(group);
-            continue;
+    if (fs.existsSync(CLAUDE_SETTINGS)) {
+      const settings = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS, 'utf8').replace(/^\uFEFF/, ''));
+      let claudeChanged = false;
+      if (settings.hooks && typeof settings.hooks === 'object') {
+        for (const event of ['Stop', 'PreToolUse']) {
+          if (!Array.isArray(settings.hooks[event])) continue;
+          let eventChanged = false;
+          const groups = [];
+          for (const group of settings.hooks[event]) {
+            if (!Array.isArray(group.hooks)) {
+              groups.push(group);
+              continue;
+            }
+            const hooks = group.hooks.filter(hook => !isManagedCommand(hook && hook.command));
+            if (hooks.length !== group.hooks.length) eventChanged = true;
+            if (hooks.length) groups.push(eventChanged ? { ...group, hooks } : group);
           }
-          const hooks = group.hooks.filter(hook => !isManagedCommand(hook && hook.command));
-          if (hooks.length) groups.push({ ...group, hooks });
+          if (groups.length !== settings.hooks[event].length) eventChanged = true;
+          if (eventChanged) {
+            settings.hooks[event] = groups;
+            claudeChanged = true;
+          }
         }
-        settings.hooks[event] = groups;
+      }
+      if (settings.statusLine && isManagedCommand(settings.statusLine.command)) {
+        delete settings.statusLine;
+        claudeChanged = true;
+      }
+      if (claudeChanged) {
+        backupOnce(CLAUDE_SETTINGS);
+        writeAtomic(CLAUDE_SETTINGS, `${JSON.stringify(settings, null, 2)}\n`);
+        changed = true;
       }
     }
-    if (settings.statusLine && isManagedCommand(settings.statusLine.command)) delete settings.statusLine;
-    writeAtomic(CLAUDE_SETTINGS, `${JSON.stringify(settings, null, 2)}\n`);
-    changed = true;
-  }
 
-  if (fs.existsSync(CODEX_CONFIG)) {
-    const content = fs.readFileSync(CODEX_CONFIG, 'utf8');
-    const lines = content.split(/\r?\n/);
-    const filtered = lines.filter(line => !( /^\s*notify\s*=/.test(line) && isManagedCommand(line) ));
-    if (filtered.length !== lines.length) {
-      writeAtomic(CODEX_CONFIG, filtered.join(os.EOL));
-      changed = true;
+    if (fs.existsSync(CODEX_CONFIG)) {
+      const content = fs.readFileSync(CODEX_CONFIG, 'utf8');
+      const result = removeManagedCodexNotify(content, isManagedCommand);
+      if (result.changed) {
+        backupOnce(CODEX_CONFIG);
+        writeAtomic(CODEX_CONFIG, result.content);
+        changed = true;
+      }
     }
-  }
 
-  vscode.window.showInformationMessage(changed ? t().hooksRemoved : t().noHooks);
-  if (controlPanelProvider) controlPanelProvider.refresh();
+    vscode.window.showInformationMessage(changed ? t().hooksRemoved : t().noHooks);
+    if (controlPanelProvider) controlPanelProvider.refresh();
+  } catch (error) {
+    vscode.window.showErrorMessage(format(t().removeFailed, error.message));
+  }
 }
 
 function createNonce() {
@@ -1724,6 +1753,12 @@ class ControlPanelProvider {
 }
 
 function activate(context) {
+  if (process.platform !== 'win32') {
+    const unsupported = () => vscode.window.showErrorMessage(t().windowsOnly);
+    context.subscriptions.push(...COMMANDS.map(command => vscode.commands.registerCommand(command, unsupported)));
+    return;
+  }
+
   applyEnabledState(configuredEnabled());
   writePopupPreferences();
   controlPanelProvider = new ControlPanelProvider(context);
@@ -1805,7 +1840,9 @@ function activate(context) {
   // Boucle unique pendant toute la vie de l'hote d'extensions. Elle ne depend
   // ni de la creation du panneau ni de sa visibilite.
   const quotaRefreshTimer = setInterval(
-    () => void refreshAllQuotas(context),
+    () => {
+      if (shouldRefreshQuotasInBackground()) void refreshAllQuotas(context);
+    },
     QUOTA_REFRESH_INTERVAL_MS
   );
 

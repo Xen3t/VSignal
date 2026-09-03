@@ -2,6 +2,7 @@
 .gitignore
 .vscode/**
 node_modules/**
+test/**
 Script_Hotkey/**
 SECURITY.md
 *.vsix

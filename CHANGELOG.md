@@ -2,13 +2,20 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.8.1 — 2026-09-03
+
+- La configuration Codex accepte désormais les tableaux `notify` multilignes et commentés, préserve les clés appartenant à d’autres tables TOML et évite toute duplication invalidante.
+- Le retrait des hooks ne réécrit plus les configurations lorsqu’aucune entrée VSignal n’est présente et crée une sauvegarde avant une modification réelle.
+- Hors Windows, l’extension n’écrit plus de fichiers et ne démarre plus de surveillance en arrière-plan.
+- La lecture périodique des quotas reste à une minute comme prévu, mais s’arrête quand le panneau est masqué et que toutes les alertes sont inactives ; le parcours des journaux s’interrompt dès que les deux fenêtres sont trouvées.
+- Le libellé de fraîcheur parle désormais de l’âge des données afin de ne plus confondre un snapshot Claude ancien avec l’heure de la dernière vérification.
+- Ajout de tests automatisés pour la fusion TOML, la suppression ciblée, le BOM et les fichiers de localisation.
+- La documentation de confidentialité décrit maintenant tous les fichiers, journaux et états locaux consultés ou créés.
+
 ## 1.8.0 — 2026-09-03
 
 - Ajout d’un indicateur compact `+N%` à droite de la popup pour montrer le coût en quota `5 h` de la tâche terminée.
 - L’indicateur peut être activé ou désactivé séparément pour Claude et Codex.
-
-## 1.8.0 — 2026-09-03
-
 - Interface, popups et messages disponibles en français et en anglais.
 - Nouveau sélecteur `Automatique / Français / English` dans le panneau VSignal ; le mode automatique suit la langue d’affichage de VS Code.
 - Commandes et descriptions des paramètres localisées avec le système natif de VS Code.

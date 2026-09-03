@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "%extension.description%",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -62,7 +62,8 @@
         {
           "id": "vsignal.controlPanel",
           "name": "VSignal",
-          "type": "webview"
+          "type": "webview",
+          "when": "isWindows"
         }
       ]
     },
@@ -70,37 +71,44 @@
       {
         "command": "vsignal.toggle",
         "title": "%command.toggle%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       },
       {
         "command": "vsignal.refreshQuotas",
         "title": "%command.refreshQuotas%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       },
       {
         "command": "vsignal.setup",
         "title": "%command.setup%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       },
       {
         "command": "vsignal.testClaude",
         "title": "%command.testClaude%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       },
       {
         "command": "vsignal.testCodex",
         "title": "%command.testCodex%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       },
       {
         "command": "vsignal.showStatus",
         "title": "%command.showStatus%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       },
       {
         "command": "vsignal.removeHooks",
         "title": "%command.removeHooks%",
-        "category": "VSignal"
+        "category": "VSignal",
+        "enablement": "isWindows"
       }
     ],
     "configuration": {
@@ -204,7 +212,8 @@
     }
   },
   "scripts": {
-    "check": "node --check extension.js",
+    "check": "node --check extension.js && node --check lib/codex-config.js",
+    "test": "node --test",
     "package": "vsce package"
   },
   "devDependencies": {

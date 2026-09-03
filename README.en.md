@@ -81,15 +81,15 @@ The same actions are available in the Command Palette:
 
 ### When are quotas refreshed?
 
-As long as VS Code is open, VSignal reads **Claude and Codex every minute**, whether the panel is open or closed. Both reads start together and their results are only published after both have returned, so the panel and alerts always share the same snapshot.
+As long as VS Code is open, VSignal reads **Claude and Codex every minute** while the panel is visible or at least one quota alert is enabled. Both reads start together and their results are only published after both have returned, so the panel and alerts always share the same snapshot.
 
 Additional reads, limited to once every 20 seconds, are triggered by changes to `~/.claude.json`—whose timestamp is polled to handle temporary-file writes followed by renames—and whenever the VS Code window regains focus. The refresh button forces an immediate read.
 
-Nothing moves while a read is in progress: the last known values remain visible, the DOM is not rebuilt, and only changed values are updated in place. The bars glide to their new lengths instead of restarting from zero. The `Updated ... ago` line reports the actual age of the oldest displayed data, not the time when VSignal last reread the cache.
+Nothing moves while a read is in progress: the last known values remain visible, the DOM is not rebuilt, and only changed values are updated in place. The bars glide to their new lengths instead of restarting from zero. The `Data is ... old` line reports the actual age of the oldest displayed snapshot, not the time since VSignal last checked it.
 
 The usage snapshot written by Claude Code can lag by a few minutes. If Claude logs a quota-exceeded refusal in the meantime, VSignal cross-checks that local log against the snapshot and immediately shows 100% for the affected window without reading account credentials.
 
-A Codex read starts a `codex app-server`, which uses about 0.7 seconds of CPU time. At one read per minute, expect roughly fifteen minutes of CPU time per day when VS Code remains open all day.
+A Codex read briefly starts a `codex app-server`. Event-driven Claude refreshes, suspension of unnecessary background reads, and early termination of log scanning limit the cost of the one-minute cadence.
 
 ### Quota alerts
 
@@ -138,11 +138,15 @@ The optional [ShortcutsAddict.ahk](Script_Hotkey/ShortcutsAddict.ahk) script map
 VSignal may create or update the following files:
 
 - `%USERPROFILE%\.vsignal\agent-done.ps1`
+- `%USERPROFILE%\.vsignal\popup.json`
+- `%USERPROFILE%\.vsignal\disabled`
 - `%USERPROFILE%\.vsignal\claude-quota.json`
+- `%USERPROFILE%\.vsignal\task-quota-claude.txt`
+- `%USERPROFILE%\.vsignal\task-quota-codex.txt`
 - `%USERPROFILE%\.claude\settings.json`
 - `%USERPROFILE%\.codex\config.toml`
 
-A `.before-vsignal.bak` backup is created before the first modification to an existing configuration. Messages are analyzed in memory to choose the popup label, but they are neither stored nor sent by VSignal. See [SECURITY.md](SECURITY.md) for details.
+To display Claude quotas, the extension also reads `%USERPROFILE%\.claude.json` and the tails of `.jsonl` logs modified since the latest snapshot under `%USERPROFILE%\.claude\projects`. Codex quotas are read through the local Codex App Server. A `.before-vsignal.bak` backup is created before the first modification to an existing configuration. Messages are analyzed in memory to choose the popup label, but they are neither stored nor sent by VSignal. See [SECURITY.md](SECURITY.md) for details.
 
 ## Uninstallation
 
