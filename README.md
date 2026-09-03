@@ -1,5 +1,7 @@
 # VSignal
 
+[Français](README.md) · [English](README.en.md)
+
 > Les modèles répondent. VSignal vous prévient.
 
 VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex se termine dans VS Code. La notification reste indépendante du Centre de notifications Windows, s’adapte au résultat de la tâche et peut afficher les quotas restants avec leur délai de réinitialisation.
@@ -15,10 +17,12 @@ VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex 
 - **La marque dit le modèle, la couleur dit la gravité.** Le logo Claude ou Codex identifie l’émetteur ; le vert, l’orange et le rouge sont réservés à l’état du quota, jamais à l’identité.
 - Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés.
 - Barres de quota `5 h` et `7 j` en pourcentage **consommé**, comme `/usage` de Claude Code : vert tant qu’il reste de la marge, orange à partir de 60 %, rouge à partir de 80 %.
+- Indicateur compact `+N%` à droite de la popup pour le coût en quota `5 h` de la tâche terminée, désactivable séparément pour Claude et Codex.
 - Panneau VS Code dédié : les quotas des deux modèles en permanence sous les yeux, le reste replié d’un clic.
 - Alertes automatiques quand une fenêtre de quota devient basse **ou** repart à zéro, activables modèle par modèle.
 - Configuration automatique à chaque démarrage de VS Code, quel que soit le projet ouvert.
 - Aucun serveur VSignal, aucune télémétrie et aucune notification Windows native.
+- Interface et popups disponibles en français et en anglais, avec détection automatique de la langue de VS Code.
 
 ## Prérequis
 
@@ -56,7 +60,7 @@ Installez ensuite le fichier `vsignal-*.vsix` produit à la racine du projet.
 Le panneau VSignal, dans la barre d’activité, regroupe tout :
 
 - **Les quotas** occupent le haut du panneau, sans titre ni repli : les fenêtres `5 h` et `7 j` des deux modèles y sont toujours affichées en entier, chacune sous une pastille aux couleurs de son fournisseur. Le bouton d’actualisation se tient dans leur coin haut droit et tourne pendant la lecture.
-- **Paramètres** — `Notifications` sous « Général », ce que les popups affichent, et les alertes modèle par modèle.
+- **Paramètres** — langue `Automatique / Français / English`, `Notifications`, contenu des popups et alertes modèle par modèle.
 - **Actions** — tester chaque modèle, réparer ou retirer les hooks.
 
 `Paramètres` et `Actions` se replient d’un clic sur leur titre, et l’état est mémorisé : le panneau peut se réduire aux seuls quotas sans que les réglages deviennent inaccessibles.
@@ -76,15 +80,15 @@ Les mêmes actions restent disponibles dans la palette de commandes :
 
 ### Quand les quotas sont-ils actualisés ?
 
-Panneau ouvert, VSignal relit **les deux quotas toutes les minutes**. Les deux lectures partent ensemble et ne sont publiées qu’une fois toutes deux revenues, si bien que l’affichage ne change qu’une seule fois par cycle.
+Tant que VS Code est ouvert, VSignal relit **Claude et Codex toutes les minutes**, que le panneau soit ouvert ou fermé. Les deux lectures partent ensemble et ne sont publiées qu’une fois toutes deux revenues, si bien que le panneau et les alertes partagent toujours le même relevé.
 
 S’y ajoutent, limités à une lecture toutes les 20 s : toute modification de `~/.claude.json`, surveillée par sondage de son horodatage pour résister aux écritures par fichier temporaire suivies d’un renommage, et le retour du focus sur la fenêtre VS Code. Le bouton d’actualisation force une relecture immédiate.
 
-Rien ne bouge pendant une lecture : les valeurs affichées restent les dernières connues, le DOM n’est pas reconstruit, et seules les valeurs changées sont corrigées sur place. Les barres glissent vers leur nouvelle longueur au lieu de repartir de zéro. La ligne `Actualisé il y a…` sous les quotas confirme que le cycle tourne.
+Rien ne bouge pendant une lecture : les valeurs affichées restent les dernières connues, le DOM n’est pas reconstruit, et seules les valeurs changées sont corrigées sur place. Les barres glissent vers leur nouvelle longueur au lieu de repartir de zéro. La ligne `Actualisé il y a…` indique l’âge réel de la donnée la plus ancienne affichée, et non l’heure à laquelle VSignal a relu le cache.
 
-Une lecture Codex démarre un `codex app-server`, soit environ 0,7 s de processeur : à raison d’une par minute, comptez près d’un quart d’heure de processeur par jour, panneau ouvert.
+Le snapshot d’usage écrit par Claude Code peut avoir quelques minutes de retard. Si Claude consigne entre-temps un refus pour quota atteint, VSignal recoupe ce journal local avec le snapshot et affiche immédiatement 100 % pour la fenêtre concernée, sans lire les identifiants du compte.
 
-Panneau fermé, seule la surveillance des alertes continue, à la cadence de `vsignal.alert.intervalMinutes`.
+Une lecture Codex démarre un `codex app-server`, soit environ 0,7 s de processeur : à raison d’une par minute, comptez près d’un quart d’heure de processeur par jour lorsque VS Code reste ouvert toute la journée.
 
 ### Alertes de quota
 
@@ -102,7 +106,6 @@ Les deux se déclenchent sur **transition**, jamais en continu : l’alerte de q
 | `vsignal.alert.reset.claude` | Prévenir quand une fenêtre Claude repart à zéro |
 | `vsignal.alert.reset.codex` | Prévenir quand une fenêtre Codex repart à zéro |
 | `vsignal.alert.threshold` | Pourcentage consommé déclencheur, `90` par défaut, soit 10 % restants |
-| `vsignal.alert.intervalMinutes` | Minutes entre deux vérifications panneau fermé, `1` par défaut |
 
 Ces alertes ignorent les quatre réglages ci-dessous : la barre concernée est toujours affichée, puisque c’est l’objet même de la notification.
 
@@ -122,7 +125,7 @@ Si les deux barres d’un modèle sont désactivées, sa popup se limite au mess
 Pour tester directement le moteur de popup depuis le dépôt :
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .esourcesagent-done.ps1 -Agent Codex -State Tested
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\resources\agent-done.ps1 -Agent Codex -State Tested
 ```
 
 ## Script facultatif pour deux écrans
