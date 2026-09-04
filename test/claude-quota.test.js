@@ -39,6 +39,25 @@ function runClaudeQuota(snapshot) {
   }
 }
 
+function runClaudeCachedQuota(cache) {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'vsignal-quota-cache-'));
+  const scriptDirectory = path.join(profile, '.vsignal');
+  const script = path.join(scriptDirectory, 'agent-done.ps1');
+  fs.mkdirSync(scriptDirectory, { recursive: true });
+  fs.copyFileSync(sourceScript, script);
+  fs.writeFileSync(path.join(scriptDirectory, 'claude-quota.json'), JSON.stringify(cache), 'utf8');
+
+  try {
+    return execFileSync(
+      powershell,
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Agent', 'Claude', '-PrintQuota'],
+      { encoding: 'utf8', env: { ...process.env, USERPROFILE: profile } }
+    );
+  } finally {
+    fs.rmSync(profile, { recursive: true, force: true });
+  }
+}
+
 test('keeps percentages from a current Claude usage snapshot', { skip: process.platform !== 'win32' }, () => {
   const now = Date.now();
   const output = runClaudeQuota({
@@ -66,4 +85,18 @@ test('resets expired Claude windows instead of displaying stale percentages fore
   assert.match(output, /5 h 0 %/);
   assert.match(output, /7 j 0 %/);
   assert.doesNotMatch(output, /44 %|26 %/);
+});
+
+test('keeps an inactive five-hour Claude window when its reset time is absent', { skip: process.platform !== 'win32' }, () => {
+  const now = Date.now();
+  const output = runClaudeCachedQuota({
+    fetchedAtMs: now,
+    fiveHourUsed: 0,
+    fiveHourResetsAt: null,
+    sevenDayUsed: 12,
+    sevenDayResetsAt: Math.floor((now + 24 * 60 * 60 * 1000) / 1000)
+  });
+
+  assert.match(output, /5 h 0 %/);
+  assert.match(output, /7 j 12 %/);
 });

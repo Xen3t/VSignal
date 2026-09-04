@@ -408,14 +408,43 @@ function Get-ClaudeCachedQuota {
             ([DateTimeOffset](Get-Item -LiteralPath $path).LastWriteTimeUtc).ToUnixTimeMilliseconds()
         }
 
+        $primary = if ($null -ne $cache.fiveHourUsed) {
+            [pscustomobject]@{
+                usedPercent = $cache.fiveHourUsed
+                windowDurationMins = 300
+                resetsAt = $cache.fiveHourResetsAt
+                observedAtMs = $observedAtMs
+            }
+        } else { $null }
+        $secondary = if ($null -ne $cache.sevenDayUsed) {
+            [pscustomobject]@{
+                usedPercent = $cache.sevenDayUsed
+                windowDurationMins = 10080
+                resetsAt = $cache.sevenDayResetsAt
+                observedAtMs = $observedAtMs
+            }
+        } else { $null }
+
+        # Claude renvoie une fenetre inactive a 0 % sans resets_at. Elle reste
+        # valide et doit etre affichee. ConvertTo-QuotaWindow normalise aussi
+        # les fenetres expirees a 0 %, donc le cache suit la meme regle.
+        foreach ($window in @($primary, $secondary)) {
+            if ($null -eq $window -or $null -eq $window.resetsAt) { continue }
+            if ([long]$window.resetsAt -le $now) {
+                $window.usedPercent = 0
+                $window.observedAtMs = [Math]::Max($observedAtMs, [long]$window.resetsAt * 1000)
+                $window.resetsAt = $null
+            }
+        }
+
         return [pscustomobject]@{
-            Primary = if ($null -ne $cache.fiveHourUsed -and [long]$cache.fiveHourResetsAt -gt $now) {
-                [pscustomobject]@{ usedPercent = $cache.fiveHourUsed; windowDurationMins = 300; resetsAt = $cache.fiveHourResetsAt; observedAtMs = $observedAtMs }
-            } else { $null }
-            Secondary = if ($null -ne $cache.sevenDayUsed -and [long]$cache.sevenDayResetsAt -gt $now) {
-                [pscustomobject]@{ usedPercent = $cache.sevenDayUsed; windowDurationMins = 10080; resetsAt = $cache.sevenDayResetsAt; observedAtMs = $observedAtMs }
-            } else { $null }
-            ObservedAtMs = $observedAtMs
+            Primary = $primary
+            Secondary = $secondary
+            ObservedAtMs = @($primary, $secondary) |
+                Where-Object { $null -ne $_ } |
+                ForEach-Object { [long]$_.observedAtMs } |
+                Measure-Object -Minimum |
+                Select-Object -ExpandProperty Minimum
         }
     } catch {
         return $null
