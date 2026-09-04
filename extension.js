@@ -794,12 +794,12 @@ function refreshAllQuotas(context, rerunIfBusy = false, force = false) {
   return quotaRefreshInFlight;
 }
 
-function refreshAgentQuota(context, agent) {
+function refreshAgentQuota(context, agent, force = true) {
   if (!QUOTA_AGENTS.includes(agent)) return Promise.resolve();
   if (agentQuotaRefreshes.has(agent)) return agentQuotaRefreshes.get(agent);
 
   const refresh = (async () => {
-    const next = await readAgentQuota(agent, true);
+    const next = await readAgentQuota(agent, force);
     if (controlPanelProvider) controlPanelProvider.applyAgentQuota(agent, next);
     await checkQuotaEvents(context, { [agent]: next });
   })().catch(error => {
@@ -2250,6 +2250,17 @@ function activate(context) {
     refreshAllQuotasThrottled(context);
   });
   context.subscriptions.push({ dispose: () => fs.unwatchFile(claudeState) });
+
+  // Le hook de fin de tache force une lecture OAuth et l'ecrit dans ce cache.
+  // Sa modification est le signal fiable qu'une nouvelle valeur Claude est
+  // disponible : on la publie aussitot, sans attendre le minuteur ni refaire
+  // un second appel reseau.
+  const claudeQuotaCache = path.join(SCRIPT_DIR, 'claude-quota.json');
+  fs.watchFile(claudeQuotaCache, { interval: 1000 }, (current, previous) => {
+    if (current.mtimeMs === previous.mtimeMs) return;
+    void refreshAgentQuota(context, 'Claude', false);
+  });
+  context.subscriptions.push({ dispose: () => fs.unwatchFile(claudeQuotaCache) });
 
   // Un refus de quota est plus recent que le snapshot d'usage et se trouve
   // dans le journal de session. Le suivre permet au panneau de passer a 100 %

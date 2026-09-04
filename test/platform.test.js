@@ -53,3 +53,9 @@ test('activation performs no file or watcher work outside Windows', () => {
     Object.assign(fs, originalFs);
   }
 });
+
+test('the Windows activation watches Claude usage cache updates', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /fs\.watchFile\(claudeQuotaCache, \{ interval: 1000 \}/);
+  assert.match(source, /refreshAgentQuota\(context, 'Claude', false\)/);
+});

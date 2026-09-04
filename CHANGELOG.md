@@ -11,6 +11,8 @@ Toutes les modifications importantes de VSignal sont documentées ici.
 - L’âge des données est séparé par fournisseur et apparaît discrètement à gauche de chaque bouton d’actualisation au lieu d’occuper une carte globale.
 - Le bouton d’actualisation interroge maintenant la source d’usage OAuth de Claude au lieu de republier aveuglément `cachedUsageUtilization`.
 - Les lectures automatiques réutilisent au maximum cinq minutes le dernier relevé réseau pour éviter les limitations `429`, puis retombent sur les snapshots locaux en cas d’erreur.
+- La fenêtre Claude de 5 h reste affichée à `0 %` lorsque l’API ne fournit pas encore de date de réinitialisation.
+- Chaque fin de tâche Claude force une lecture OAuth, puis une seconde lecture 15 secondes plus tard pour absorber le délai de propagation du compteur ; le panneau surveille le cache obtenu et publie immédiatement la nouvelle valeur.
 - Un snapshot local dont l’heure de remise à zéro est dépassée ne conserve plus son ancien pourcentage indéfiniment : la fenêtre repasse à zéro.
 - Les paramètres sont désormais regroupés logiquement par fournisseur : visibilité, contenu des popups et alertes sont réunis sous Claude, Codex ou Gemini.
 - Gemini dispose désormais de ses réglages de popup et d’alertes, ainsi que d’une action de test avec sa marque et son quota hebdomadaire.

@@ -21,6 +21,8 @@ param(
 
     [switch]$ForceQuotaRefresh,
 
+    [switch]$RefreshClaudeQuotaAfterDelay,
+
     [switch]$SnapshotQuota,
 
     [switch]$Display,
@@ -454,7 +456,9 @@ function Get-ClaudeCachedQuota {
 # Claude Code ne propose pas encore de commande non interactive equivalente a
 # /usage. Son endpoint OAuth est la seule source fraiche disponible. Le jeton
 # reste en memoire, les appels automatiques sont espaces de cinq minutes, et
-# toute erreur retombe silencieusement sur les snapshots locaux.
+# toute erreur retombe silencieusement sur les snapshots locaux. Les fins de
+# tache forcent toutefois une lecture : c'est le seul moment ou la fraicheur
+# immediate compte davantage que l'economie d'un appel.
 function Get-ClaudeApiQuota {
     param([switch]$Force)
 
@@ -519,6 +523,29 @@ function Get-ClaudeQuotaText {
     $script:ClaudeQuotaObservedAtMs = [long]$quota.ObservedAtMs
 
     return Format-QuotaText -Primary $quota.Primary -Secondary $quota.Secondary -ForAgent 'Claude' -ApplyPreference:$ApplyPreference
+}
+
+# Le compteur OAuth peut arriver plusieurs secondes apres la reponse finale.
+# Une seconde lecture decalee corrige le panneau sans retenir le hook Claude.
+function Start-ClaudeQuotaFollowUp {
+    try {
+        $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $arguments = @(
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', ('"{0}"' -f $PSCommandPath),
+            '-Agent', 'Claude',
+            '-RefreshClaudeQuotaAfterDelay'
+        )
+        Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden | Out-Null
+    } catch {}
+}
+
+if ($RefreshClaudeQuotaAfterDelay) {
+    Start-Sleep -Seconds 15
+    $null = Get-ClaudeQuotaText -ForceRefresh
+    exit 0
 }
 
 if ($CacheClaudeQuota) {
@@ -625,7 +652,9 @@ if (-not $Display) {
         $QuotaText = if ($Agent -eq 'Codex') {
             Get-CodexQuotaText -ApplyPreference:$filter
         } elseif ($Agent -eq 'Claude') {
-            Get-ClaudeQuotaText -ApplyPreference:$filter
+            $freshQuota = Get-ClaudeQuotaText -ApplyPreference:$filter -ForceRefresh
+            Start-ClaudeQuotaFollowUp
+            $freshQuota
         } else {
             ''
         }

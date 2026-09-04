@@ -16,6 +16,13 @@ const powershell = path.join(
 );
 const sourceScript = path.join(__dirname, '..', 'resources', 'agent-done.ps1');
 
+test('forces a fresh Claude usage read when a completion popup is prepared', () => {
+  const source = fs.readFileSync(sourceScript, 'utf8');
+  assert.match(source, /\$freshQuota = Get-ClaudeQuotaText -ApplyPreference:\$filter -ForceRefresh/);
+  assert.match(source, /\$freshQuota = Get-ClaudeQuotaText[\s\S]{0,160}Start-ClaudeQuotaFollowUp/);
+  assert.match(source, /Start-Sleep -Seconds 15[\s\S]*Get-ClaudeQuotaText -ForceRefresh/);
+});
+
 function runClaudeQuota(snapshot) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'vsignal-quota-'));
   const scriptDirectory = path.join(profile, '.vsignal');
