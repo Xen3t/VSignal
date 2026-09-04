@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "%extension.description%",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",

@@ -2,6 +2,10 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.8.3 — 2026-09-04
+
+- Les processus lancés par le script de notification n'allouent plus de console : `Start-Process -WindowStyle Hidden` créait la fenêtre avant de la masquer, ce qui produisait un clignotement de fenêtre noire à chaque relance de quota et à chaque popup. Le lancement passe désormais par `ProcessStartInfo` avec `CreateNoWindow`, comme le sondage Codex.
+
 ## 1.8.2 — 2026-09-04
 
 - Ajout de la limite hebdomadaire Gemini dans le panneau, lue via la sortie JSON de la commande locale `agy /quota` et convertie en pourcentage consommé.

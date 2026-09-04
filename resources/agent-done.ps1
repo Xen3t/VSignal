@@ -525,6 +525,28 @@ function Get-ClaudeQuotaText {
     return Format-QuotaText -Primary $quota.Primary -Secondary $quota.Secondary -ForAgent 'Claude' -ApplyPreference:$ApplyPreference
 }
 
+# Start-Process -WindowStyle Hidden alloue quand meme une console avant de la
+# masquer : c'est le clignotement de fenetre noire visible a chaque appel.
+# CreateNoWindow n'en cree aucune, comme pour le sondage codex plus haut.
+function Start-HiddenProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string]$Arguments = ''
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = $Arguments
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $null = $process.Start()
+    $process.Dispose()
+}
+
 # Le compteur OAuth peut arriver plusieurs secondes apres la reponse finale.
 # Une seconde lecture decalee corrige le panneau sans retenir le hook Claude.
 function Start-ClaudeQuotaFollowUp {
@@ -538,7 +560,7 @@ function Start-ClaudeQuotaFollowUp {
             '-Agent', 'Claude',
             '-RefreshClaudeQuotaAfterDelay'
         )
-        Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden | Out-Null
+        Start-HiddenProcess -FilePath $powershell -Arguments ($arguments -join ' ')
     } catch {}
 }
 
@@ -667,12 +689,12 @@ if (-not $Display) {
     }
 
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $arguments = '-NoProfile -NonInteractive -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Agent "{1}" -State "{2}"' -f $PSCommandPath, $Agent, $State
+    $arguments = '-NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File "{0}" -Agent "{1}" -State "{2}"' -f $PSCommandPath, $Agent, $State
     if ($QuotaText) { $arguments += ' -QuotaText "{0}"' -f $QuotaText }
     if ($Detail) { $arguments += ' -Detail "{0}"' -f $Detail }
     if ($TaskDelta) { $arguments += ' -TaskDelta "{0}"' -f $TaskDelta }
     $arguments += ' -Display'
-    Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden
+    Start-HiddenProcess -FilePath $powershell -Arguments $arguments
     exit 0
 }
 
