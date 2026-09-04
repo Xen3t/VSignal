@@ -21,3 +21,21 @@ test('development-only test files are excluded from the VSIX', () => {
   const ignored = fs.readFileSync(path.join(root, '.vscodeignore'), 'utf8');
   assert.match(ignored, /^test\/\*\*$/m);
 });
+
+test('Gemini and panel provider controls are contributed with safe defaults', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const commands = new Set(manifest.contributes.commands.map(entry => entry.command));
+  const properties = manifest.contributes.configuration.properties;
+
+  assert.equal(commands.has('vsignal.testGemini'), true);
+  for (const key of [
+    'vsignal.popup.gemini.weekly',
+    'vsignal.alert.lowQuota.gemini',
+    'vsignal.alert.reset.gemini',
+    'vsignal.panel.providers.claude',
+    'vsignal.panel.providers.codex',
+    'vsignal.panel.providers.gemini'
+  ]) {
+    assert.equal(properties[key].default, true, `${key} should default to enabled`);
+  }
+});

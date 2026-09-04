@@ -10,6 +10,7 @@ const {
   removeManagedCodexNotify,
   updateCodexNotify
 } = require('./lib/codex-config');
+const { readGeminiQuota } = require('./lib/gemini-quota');
 
 const SCRIPT_DIR = path.join(os.homedir(), '.vsignal');
 const LEGACY_SCRIPT_DIR = path.join(os.homedir(), '.agent-notifications');
@@ -37,6 +38,7 @@ const COMMANDS = [
   'vsignal.setup',
   'vsignal.testClaude',
   'vsignal.testCodex',
+  'vsignal.testGemini',
   'vsignal.showStatus',
   'vsignal.removeHooks'
 ];
@@ -65,6 +67,7 @@ const STRINGS = {
     alertLow: 'Il reste {0} % sur la fenêtre {1}',
     alertReset: 'La fenêtre {0} est repartie à zéro',
     resetIn: 'reset dans {0}',
+    viewAction: 'Voir',
     unitMin: 'min',
     unitHour: 'h',
     unitDay: 'j',
@@ -78,20 +81,28 @@ const STRINGS = {
     languageAuto: 'Automatique (langue de VS Code)',
     languageFrench: 'Français',
     languageEnglish: 'English',
-    groupPopupQuotas: 'Quotas affichés dans les popups',
-    taskPercentageLabel: 'Coût de la tâche',
-    groupAlerts: 'Alertes',
+    showInPanelLabel: 'Afficher dans le panneau',
+    popupQuotaLabel: 'Popup — quota {0}',
+    popupTaskCostLabel: 'Popup — coût de la tâche',
+    alertSettingLabel: 'Alerte — {0}',
     notifications: 'Notifications',
     lowQuotaLabel: 'Quota bas',
     resetLabel: 'Remise à zéro',
     testClaude: 'Tester Claude',
     testCodex: 'Tester Codex',
+    testGemini: 'Tester Gemini',
     repairHooks: 'Configurer / réparer les hooks',
     removeHooks: 'Retirer les hooks',
     refreshQuotas: 'Actualiser les quotas',
+    refreshAgentQuota: 'Actualiser uniquement {0}',
     loadingQuotas: 'Lecture des quotas…',
     waitingClaude: 'En attente d’une première réponse de Claude',
     noCodex: 'Compte Codex non détecté',
+    noGemini: 'Compte Gemini non détecté',
+    noProvider: 'Aucun fournisseur affiché',
+    usageShort: 'Utilisation sur 5 h',
+    usageWeekly: 'Utilisation cette semaine',
+    freshCompactNow: 'à jour',
     freshNow: 'Données à jour',
     freshMinutes: 'Données datant de {0} min',
     freshHours: 'Données datant de {0} h',
@@ -132,6 +143,7 @@ const STRINGS = {
     alertLow: '{0} % left on the {1} window',
     alertReset: 'The {0} window is back to zero',
     resetIn: 'resets in {0}',
+    viewAction: 'Open',
     unitMin: 'min',
     unitHour: 'h',
     unitDay: 'd',
@@ -145,20 +157,28 @@ const STRINGS = {
     languageAuto: 'Automatic (VS Code language)',
     languageFrench: 'Français',
     languageEnglish: 'English',
-    groupPopupQuotas: 'Quotas shown in popups',
-    taskPercentageLabel: 'Task cost',
-    groupAlerts: 'Alerts',
+    showInPanelLabel: 'Show in the panel',
+    popupQuotaLabel: 'Popup — {0} quota',
+    popupTaskCostLabel: 'Popup — task cost',
+    alertSettingLabel: 'Alert — {0}',
     notifications: 'Notifications',
     lowQuotaLabel: 'Low quota',
     resetLabel: 'Quota reset',
     testClaude: 'Test Claude',
     testCodex: 'Test Codex',
+    testGemini: 'Test Gemini',
     repairHooks: 'Set up / repair hooks',
     removeHooks: 'Remove hooks',
     refreshQuotas: 'Refresh quotas',
+    refreshAgentQuota: 'Refresh {0} only',
     loadingQuotas: 'Reading quotas…',
     waitingClaude: 'Waiting for a first reply from Claude',
     noCodex: 'No Codex account detected',
+    noGemini: 'No Gemini account detected',
+    noProvider: 'No provider displayed',
+    usageShort: 'Usage over 5 hours',
+    usageWeekly: 'Usage this week',
+    freshCompactNow: 'now',
     freshNow: 'Data is up to date',
     freshMinutes: 'Data is {0} min old',
     freshHours: 'Data is {0} h old',
@@ -188,7 +208,8 @@ const STRINGS = {
 const POPUP_STRING_KEYS = [
   'titleDone', 'titleQuestion', 'titleBlocked', 'titleQuota', 'titleReset',
   'detailDone', 'detailCode', 'detailTested', 'detailQuestion', 'detailBlocked',
-  'detailQuota', 'detailReset', 'resetIn', 'unitMin', 'unitHour', 'unitDay'
+  'detailQuota', 'detailReset', 'resetIn', 'unitMin', 'unitHour', 'unitDay',
+  'viewAction'
 ];
 
 function currentLanguage() {
@@ -221,14 +242,16 @@ function localizeDuration(text, strings) {
     .replace(/\bj\b/g, strings.unitDay);
 }
 
-// Fenetres de quota affichables dans les popups. Le panneau, lui, montre tout.
+// Fenetres de quota affichables dans les popups, independamment des cartes
+// fournisseur choisies pour le panneau.
 // Le libelle de fenetre reste en unites francaises : c'est le format de
 // transport, traduit seulement a l'affichage.
 const POPUP_PREFERENCES = [
   { key: 'popup.claude.fiveHours', field: 'ClaudeShort', agent: 'Claude', window: '5 h' },
   { key: 'popup.claude.weekly', field: 'ClaudeWeekly', agent: 'Claude', window: '7 j' },
   { key: 'popup.codex.fiveHours', field: 'CodexShort', agent: 'Codex', window: '5 h' },
-  { key: 'popup.codex.weekly', field: 'CodexWeekly', agent: 'Codex', window: '7 j' }
+  { key: 'popup.codex.weekly', field: 'CodexWeekly', agent: 'Codex', window: '7 j' },
+  { key: 'popup.gemini.weekly', field: 'GeminiWeekly', agent: 'Gemini', window: '7 j' }
 ];
 
 const TASK_PERCENT_PREFERENCES = [
@@ -240,19 +263,56 @@ const ALERT_PREFERENCES = [
   { key: 'alert.lowQuota.claude', agent: 'Claude', label: 'lowQuotaLabel' },
   { key: 'alert.reset.claude', agent: 'Claude', label: 'resetLabel' },
   { key: 'alert.lowQuota.codex', agent: 'Codex', label: 'lowQuotaLabel' },
-  { key: 'alert.reset.codex', agent: 'Codex', label: 'resetLabel' }
+  { key: 'alert.reset.codex', agent: 'Codex', label: 'resetLabel' },
+  { key: 'alert.lowQuota.gemini', agent: 'Gemini', label: 'lowQuotaLabel' },
+  { key: 'alert.reset.gemini', agent: 'Gemini', label: 'resetLabel' }
+];
+
+const PANEL_PROVIDER_PREFERENCES = [
+  { key: 'panel.providers.claude', agent: 'Claude' },
+  { key: 'panel.providers.codex', agent: 'Codex' },
+  { key: 'panel.providers.gemini', agent: 'Gemini' }
 ];
 
 const SETTING_KEYS = ['enabled']
   .concat(POPUP_PREFERENCES.map(item => item.key))
   .concat(TASK_PERCENT_PREFERENCES.map(item => item.key))
-  .concat(ALERT_PREFERENCES.map(item => item.key));
+  .concat(ALERT_PREFERENCES.map(item => item.key))
+  .concat(PANEL_PROVIDER_PREFERENCES.map(item => item.key));
 
 // Tout ce que le panneau expose sous « Paramètres ».
 function settingGroups(strings) {
-  const forAgent = agent => ALERT_PREFERENCES
-    .filter(item => item.agent === agent)
-    .map(item => ({ key: item.key, agent, label: strings[item.label] }));
+  const forAgent = agent => {
+    const panel = PANEL_PROVIDER_PREFERENCES.find(item => item.agent === agent);
+    const popups = POPUP_PREFERENCES
+      .filter(item => item.agent === agent)
+      .map(item => ({
+        key: item.key,
+        agent,
+        label: format(strings.popupQuotaLabel, localizeDuration(item.window, strings))
+      }));
+    const taskCosts = TASK_PERCENT_PREFERENCES
+      .filter(item => item.agent === agent)
+      .map(item => ({ key: item.key, agent, label: strings.popupTaskCostLabel }));
+    const alerts = ALERT_PREFERENCES
+      .filter(item => item.agent === agent)
+      .map(item => ({
+        key: item.key,
+        agent,
+        label: format(strings.alertSettingLabel, strings[item.label])
+      }));
+
+    return {
+      caption: agent,
+      agent,
+      items: [
+        { key: panel.key, agent, label: strings.showInPanelLabel },
+        ...popups,
+        ...taskCosts,
+        ...alerts
+      ]
+    };
+  };
 
   return [
     // L'interrupteur general n'a pas a occuper le haut du panneau : on l'ouvre
@@ -273,22 +333,9 @@ function settingGroups(strings) {
         }
       ]
     },
-    {
-      caption: strings.groupPopupQuotas,
-      items: POPUP_PREFERENCES.map(item => ({
-        key: item.key,
-        agent: item.agent,
-        label: item.agent + ' — ' + localizeDuration(item.window, strings)
-      })).concat(TASK_PERCENT_PREFERENCES.map(item => ({
-        key: item.key,
-        agent: item.agent,
-        label: item.agent + ' — ' + strings.taskPercentageLabel
-      })))
-    },
-    // Regroupees par modele : le libelle reste court, donc lisible en colonne
-    // etroite, la ou « Remise à zéro — Claude » se faisait tronquer.
-    { caption: strings.groupAlerts + ' — Claude', items: forAgent('Claude') },
-    { caption: strings.groupAlerts + ' — Codex', items: forAgent('Codex') }
+    forAgent('Claude'),
+    forAgent('Codex'),
+    forAgent('Gemini')
   ];
 }
 
@@ -562,8 +609,24 @@ function runPopup(args, onFailure) {
   });
 }
 
-function showTest(agent) {
-  runPopup(['-Agent', agent, '-State', 'Done'], message => {
+function quotaText(values) {
+  return (values || []).map(value =>
+    `${value.window} ${value.percent} %${value.reset ? ` reset ${value.reset}` : ''}`
+  ).join(' | ');
+}
+
+async function showTest(agent) {
+  const args = ['-Agent', agent, '-State', 'Done'];
+  if (agent === 'Gemini') {
+    const result = await readGeminiQuota();
+    const showWeekly = vscode.workspace
+      .getConfiguration('vsignal')
+      .get('popup.gemini.weekly', true);
+    const quota = showWeekly ? quotaText(result.values) : '';
+    if (quota) args.push('-QuotaText', quota);
+  }
+
+  runPopup(args, message => {
     vscode.window.showErrorMessage(format(t().testFailed, agent, message));
   });
   vscode.window.setStatusBarMessage(format(t().testSent, agent), 3000);
@@ -580,25 +643,28 @@ async function runTest(context, agent) {
     applyEnabledState(true);
   }
   await setup(context, false);
-  showTest(agent);
+  await showTest(agent);
 }
 
-function readQuota(agent) {
+function readQuota(agent, force = false) {
   return new Promise(resolve => {
+    const args = [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      SCRIPT_PATH,
+      '-Agent',
+      agent,
+      '-PrintQuota'
+    ];
+    if (force && agent === 'Claude') args.push('-ForceQuotaRefresh');
+
     execFile(
       POWERSHELL,
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        SCRIPT_PATH,
-        '-Agent',
-        agent,
-        '-PrintQuota'
-      ],
-      { windowsHide: true, timeout: 9000, encoding: 'utf8' },
+      args,
+      { windowsHide: true, timeout: 15000, encoding: 'utf8' },
       (error, stdout) => {
         if (error) {
           resolve({ text: '', sourceAt: 0 });
@@ -653,17 +719,38 @@ function parseQuota(text) {
 
 const QUOTA_REFRESH_INTERVAL_MS = 60 * 1000;
 const QUOTA_TRIGGER_THROTTLE_MS = 20 * 1000;
+const QUOTA_AGENTS = ['Claude', 'Codex', 'Gemini'];
 let quotaRefreshInFlight;
 let quotaRefreshQueued = false;
+let quotaRefreshForceQueued = false;
 let quotaTriggeredAt = 0;
+const agentQuotaRefreshes = new Map();
 
-async function performQuotaRefresh(context) {
-  // Claude et Codex partent toujours ensemble. Le releve n'est publie qu'une
-  // fois les deux reponses revenues, ce qui donne un instantane coherent.
-  const [claude, codex] = await Promise.all([readQuota('Claude'), readQuota('Codex')]);
+async function readAgentQuota(agent, force = false) {
+  if (agent === 'Gemini') return readGeminiQuota();
+  const result = await readQuota(agent, force);
+  return { values: parseQuota(result.text), sourceAt: result.sourceAt };
+}
+
+async function performQuotaRefresh(context, force = false) {
+  // Gemini est lu avec la commande locale /quota uniquement quand le panneau
+  // est visible. Cela evite de demarrer Antigravity chaque minute en arriere-plan.
+  const config = vscode.workspace.getConfiguration('vsignal');
+  const geminiAlerts = ALERT_PREFERENCES
+    .filter(preference => preference.agent === 'Gemini')
+    .some(preference => config.get(preference.key, true));
+  const geminiVisible = config.get('panel.providers.gemini', true);
+  const panelVisible = controlPanelProvider && controlPanelProvider.isVisible();
+  const wantsGemini = geminiAlerts || (geminiVisible && (force || panelVisible));
+  const [claude, codex, gemini] = await Promise.all([
+    readAgentQuota('Claude', force),
+    readAgentQuota('Codex'),
+    wantsGemini ? readAgentQuota('Gemini') : Promise.resolve({ values: [], sourceAt: 0 })
+  ]);
   const snapshot = {
-    Claude: { values: parseQuota(claude.text), sourceAt: claude.sourceAt },
-    Codex: { values: parseQuota(codex.text), sourceAt: codex.sourceAt }
+    Claude: claude,
+    Codex: codex,
+    Gemini: gemini
   };
 
   if (controlPanelProvider) controlPanelProvider.applyQuotaSnapshot(snapshot);
@@ -674,17 +761,24 @@ async function performQuotaRefresh(context) {
 // Tous les declencheurs partagent la meme lecture. Si Claude change pendant
 // une lecture deja lancee, un unique second passage est mis en attente ; les
 // clics, le minuteur et le panneau ne peuvent donc jamais empiler les process.
-function refreshAllQuotas(context, rerunIfBusy = false) {
+function refreshAllQuotas(context, rerunIfBusy = false, force = false) {
   if (quotaRefreshInFlight) {
-    if (rerunIfBusy) quotaRefreshQueued = true;
+    if (rerunIfBusy) {
+      quotaRefreshQueued = true;
+      quotaRefreshForceQueued = quotaRefreshForceQueued || force;
+    }
     return quotaRefreshInFlight;
   }
 
   quotaRefreshInFlight = (async () => {
+    let forceNext = force;
     do {
       quotaRefreshQueued = false;
+      const forceCurrent = forceNext || quotaRefreshForceQueued;
+      forceNext = false;
+      quotaRefreshForceQueued = false;
       try {
-        await performQuotaRefresh(context);
+        await performQuotaRefresh(context, forceCurrent);
       } catch (error) {
         // Le minuteur doit survivre a toute erreur inattendue de stockage ou
         // de publication. Les erreurs normales de lecture sont deja converties
@@ -698,6 +792,25 @@ function refreshAllQuotas(context, rerunIfBusy = false) {
   });
 
   return quotaRefreshInFlight;
+}
+
+function refreshAgentQuota(context, agent) {
+  if (!QUOTA_AGENTS.includes(agent)) return Promise.resolve();
+  if (agentQuotaRefreshes.has(agent)) return agentQuotaRefreshes.get(agent);
+
+  const refresh = (async () => {
+    const next = await readAgentQuota(agent, true);
+    if (controlPanelProvider) controlPanelProvider.applyAgentQuota(agent, next);
+    await checkQuotaEvents(context, { [agent]: next });
+  })().catch(error => {
+    console.error(`VSignal ${agent} quota refresh failed:`, error);
+  }).finally(() => {
+    agentQuotaRefreshes.delete(agent);
+    if (controlPanelProvider) controlPanelProvider.setAgentQuotaLoading(agent, false);
+  });
+
+  agentQuotaRefreshes.set(agent, refresh);
+  return refresh;
 }
 
 function refreshAllQuotasThrottled(context) {
@@ -723,13 +836,23 @@ function showQuotaAlert(agent, value) {
   const strings = t();
   const remaining = Math.max(0, 100 - value.percent);
   const window = localizeDuration(value.window, strings);
-  runPopup(['-Agent', agent, '-State', 'Quota', '-Detail', format(strings.alertLow, remaining, window)]);
+  runPopup([
+    '-Agent', agent,
+    '-State', 'Quota',
+    '-Detail', format(strings.alertLow, remaining, window),
+    '-QuotaText', quotaText([value])
+  ]);
 }
 
 function showResetAlert(agent, value) {
   const strings = t();
   const window = localizeDuration(value.window, strings);
-  runPopup(['-Agent', agent, '-State', 'Reset', '-Detail', format(strings.alertReset, window)]);
+  runPopup([
+    '-Agent', agent,
+    '-State', 'Reset',
+    '-Detail', format(strings.alertReset, window),
+    '-QuotaText', quotaText([value])
+  ]);
 }
 
 // Un pourcentage consomme ne peut que monter a l'interieur d'une fenetre :
@@ -746,7 +869,8 @@ async function checkQuotaEvents(context, snapshot) {
   const config = vscode.workspace.getConfiguration('vsignal');
   const threshold = Math.min(100, Math.max(50, Number(config.get('alert.threshold', 90))));
 
-  for (const agent of ['Claude', 'Codex']) {
+  for (const agent of QUOTA_AGENTS) {
+    if (!snapshot[agent]) continue;
     const suffix = agent.toLowerCase();
     const wantsLow = config.get(`alert.lowQuota.${suffix}`, true);
     const wantsReset = config.get(`alert.reset.${suffix}`, true);
@@ -873,6 +997,7 @@ const PANEL_STYLE = `
 :root {
   --vsignal-claude: #d97757;
   --vsignal-codex: #000000;
+  --vsignal-gemini: #4285f4;
   --vsignal-ok: #3fb950;
   --vsignal-warn: #d29922;
   --vsignal-alert: #f85149;
@@ -887,42 +1012,65 @@ const PANEL_STYLE = `
 
 body {
   margin: 0;
-  padding: 14px 14px 20px;
+  padding: 8px 8px 12px;
   font-family: var(--vscode-font-family);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 11.5px;
+  line-height: 1.35;
   color: var(--vscode-foreground);
-  background: transparent;
+  background:
+    radial-gradient(circle at 50% -40px, color-mix(in srgb, var(--vsignal-gemini) 8%, transparent), transparent 230px),
+    transparent;
 }
 
 .masthead {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 7px;
+  margin: 1px 1px 9px;
 }
+
+.masthead-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 
 .wordmark {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  gap: 6px;
+  font-size: 14.5px;
+  font-weight: 720;
   letter-spacing: 0.2px;
 }
 
-.wordmark svg { width: 17px; height: 17px; flex: none; }
+.wordmark svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  color: #63ead5;
+  filter: drop-shadow(0 0 7px rgba(99, 234, 213, 0.35));
+}
 
 .pill {
-  font-size: 10.5px;
+  font-size: 8.5px;
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
   border-radius: 999px;
   border: 1px solid transparent;
   white-space: nowrap;
+}
+
+.pill::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 7px currentColor;
 }
 
 .pill.on {
@@ -940,21 +1088,24 @@ body {
 
 .card {
   border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-  border-radius: var(--vsignal-radius);
-  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.06));
-  padding: 12px 13px;
-  margin-bottom: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent);
+  padding: 8px 9px;
+  margin-bottom: 8px;
 }
 
-.card.flush { padding: 11px 13px; }
+.card.flush { padding: 7px 9px; }
 
 .section {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
-  margin: 18px 2px 8px;
+  letter-spacing: 0.1px;
+  color: var(--vscode-foreground);
+  margin: 6px 0 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.28));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--vscode-editorWidget-background) 90%, transparent);
 }
 
 .section:first-of-type { margin-top: 4px; }
@@ -966,7 +1117,7 @@ body {
 .section-toggle {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   flex: 1 1 auto;
   min-width: 0;
   border: none;
@@ -977,9 +1128,25 @@ body {
   font: inherit;
   color: inherit;
   letter-spacing: inherit;
-  text-transform: inherit;
   text-align: left;
 }
+
+.section-toggle::before {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 6px;
+  color: #63ead5;
+  background: rgba(99, 234, 213, 0.1);
+  border: 1px solid rgba(99, 234, 213, 0.2);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.section-toggle[data-target='prefs']::before { content: '⚙'; }
+.section-toggle[data-target='actions']::before { content: 'ϟ'; font-size: 14px; }
 
 .section-toggle:hover { color: var(--vscode-foreground); }
 
@@ -990,14 +1157,16 @@ body {
   height: 9px;
   flex: none;
   transition: transform 130ms ease;
+  order: 3;
 }
 
 .section-toggle[aria-expanded='false'] .chevron { transform: rotate(-90deg); }
 
+.section-toggle span { flex: 1 1 auto; }
+
 .section-toggle span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
 }
 
 .section.with-action {
@@ -1025,20 +1194,30 @@ body {
 
 .icon-button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
-.icon-button svg { width: 13px; height: 13px; display: block; }
+.icon-button svg { width: 11px; height: 11px; display: block; }
 
-/* Les quotas sont la raison d'etre du panneau : ils ne se replient pas et
-   n'ont pas besoin d'un titre. L'actualisation se pose dans leur coin. */
-.quota-card { position: relative; padding-top: 11px; }
-
-.icon-button.floating {
-  position: absolute;
-  top: 9px;
-  right: 9px;
-  margin: 0;
+/* Les quotas sont presentes comme trois cartes autonomes, teintees par marque. */
+.quota-card {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
 }
 
-.quota-card .quota-agent:first-child .quota-head { padding-right: 22px; }
+.global-refresh,
+.agent-refresh {
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.3));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent);
+}
+
+.agent-refresh { color: var(--agent-color); }
+
+.icon-button:disabled { cursor: default; opacity: 0.62; }
 
 .icon-button.busy svg { animation: spin 0.9s linear infinite; }
 
@@ -1048,36 +1227,53 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  min-height: 26px;
+  gap: 7px;
+  min-height: 22px;
 }
 
 .row + .row { margin-top: 2px; }
 
-.row .name { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
+.row .name { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
 
 .group-caption {
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 8.5px;
   font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: var(--vscode-descriptionForeground);
-  margin: 0 0 6px;
+  margin: 0 0 4px;
 }
 
+.settings-provider-mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 3px;
+  border-radius: 5px;
+}
+
+.settings-provider-mark img { display: block; width: 100%; height: 100%; }
+.provider-settings.claude .settings-provider-mark { background: linear-gradient(145deg, #f58a52, #d64b2f); }
+.provider-settings.codex .settings-provider-mark { background: #050505; border: 1px solid rgba(255, 255, 255, 0.34); }
+.provider-settings.gemini .settings-provider-mark { background: linear-gradient(145deg, #126ac8, #0a315f); }
+
 .group + .group {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.22));
 }
 
-.row .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .name span { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 
 .language-select {
   flex: 0 1 154px;
   min-width: 0;
   max-width: 58%;
-  height: 25px;
+  height: 22px;
   padding: 1px 22px 1px 7px;
   color: var(--vscode-settings-dropdownForeground, var(--vscode-foreground));
   background: var(--vscode-settings-dropdownBackground, var(--vscode-dropdown-background));
@@ -1088,34 +1284,55 @@ body {
 
 .language-select:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
-/* Le fournisseur se lit sur une pastille a ses couleurs plutot que sur un
-   point de sept pixels que rien n'explique. */
+/* Une tuile identifie le fournisseur, tandis que Codex reste monochrome. */
 .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  color: var(--vscode-foreground);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  background: none;
+  border: 0;
+}
+
+.provider-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   flex: none;
-  padding: 2px 7px;
-  border-radius: 5px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  color: #ffffff;
-  border: 1px solid transparent;
+  padding: 5px;
+  border-radius: 7px;
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.24);
 }
 
-.badge.claude { background: var(--vsignal-claude); }
+.provider-icon img { display: block; width: 100%; height: 100%; }
 
-/* Le noir d'OpenAI a besoin d'un filet pour exister sur fond sombre. */
-.badge.codex {
-  background: var(--vsignal-codex);
-  border-color: rgba(255, 255, 255, 0.28);
+.badge.claude .provider-icon {
+  background: linear-gradient(145deg, #f58a52, #d64b2f);
+  box-shadow: 0 7px 20px rgba(217, 119, 87, 0.28);
 }
 
-.muted { color: var(--vscode-descriptionForeground); font-size: 11.5px; }
+.badge.codex .provider-icon {
+  background: #050505;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+}
+
+.badge.gemini .provider-icon {
+  background: linear-gradient(145deg, #126ac8, #0a315f);
+  box-shadow: 0 7px 20px rgba(66, 133, 244, 0.25);
+}
+
+.muted { color: var(--vscode-descriptionForeground); font-size: 10px; }
 
 
 .toggle {
   position: relative;
-  width: 32px;
-  height: 18px;
+  width: 28px;
+  height: 16px;
   flex: none;
   border-radius: 999px;
   border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.4));
@@ -1130,8 +1347,8 @@ body {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--vscode-descriptionForeground);
   transition: transform 140ms ease, background 140ms ease;
@@ -1143,57 +1360,121 @@ body {
 }
 
 .toggle[aria-checked='true']::after {
-  transform: translateX(14px);
+  transform: translateX(12px);
   background: var(--vscode-button-foreground);
 }
 
 .toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 
-.quota-agent + .quota-agent { margin-top: 14px; }
+.quota-agent {
+  --agent-color: var(--vscode-widget-border, #777);
+  --agent-soft: rgba(128, 128, 128, 0.08);
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-color) 56%, transparent);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 16% 0, color-mix(in srgb, var(--agent-color) 13%, transparent), transparent 155px),
+    linear-gradient(135deg, var(--agent-soft), transparent 68%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 8px 22px rgba(0, 0, 0, 0.09);
+}
+
+.quota-agent.claude { --agent-color: var(--vsignal-claude); --agent-soft: rgba(217, 119, 87, 0.075); }
+.quota-agent.codex { --agent-color: #aeb4bd; --agent-soft: rgba(255, 255, 255, 0.035); }
+.quota-agent.gemini { --agent-color: var(--vsignal-gemini); --agent-soft: rgba(66, 133, 244, 0.075); }
+
+.quota-agent + .quota-agent { margin-top: 8px; }
 
 .quota-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 9px;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 7px;
 }
 
-.freshness {
-  margin-top: 11px;
-  font-size: 10.5px;
+.quota-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.agent-freshness {
   color: var(--vscode-descriptionForeground);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.72;
 }
 
-.quota-line + .quota-line { margin-top: 9px; }
+.quota-body {
+  padding: 0 8px;
+  border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.24));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent);
+}
+
+.quota-empty { padding: 8px 0; }
+
+.quota-empty-provider {
+  padding: 10px 8px;
+  text-align: center;
+  border: 1px dashed var(--vscode-widget-border, rgba(128, 128, 128, 0.3));
+  border-radius: 9px;
+}
+
+.quota-line { padding: 7px 0; }
+
+.quota-line + .quota-line {
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+}
+
+.quota-label {
+  margin-bottom: 3px;
+  color: var(--agent-color);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+}
 
 .quota-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
+  gap: 5px;
+  font-size: 9.5px;
   margin-bottom: 4px;
 }
 
-/* laisser le pourcentage toujours visible : c'est le seul chiffre qui compte,
-// le libelle de reinitialisation peut etre tronque sans perte. */
+/* Aucun chiffre ne disparait en largeur minimale : le delai se compacte et
+   peut revenir a la ligne, tandis que le pourcentage garde sa largeur. */
 .quota-meta .left {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--vscode-foreground);
+  font-size: 10.5px;
+  font-weight: 650;
 }
 
 .quota-meta .value {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 750;
+  line-height: 1;
+  margin-left: auto;
 }
 
 .track {
-  height: 6px;
-  border-radius: 3px;
+  height: 5px;
+  border-radius: 999px;
   background: rgba(128, 128, 128, 0.28);
   background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
   overflow: hidden;
@@ -1201,14 +1482,14 @@ body {
 
 .fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 999px;
   width: 0;
   transition: width 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .skeleton {
-  height: 6px;
-  border-radius: 3px;
+  height: 5px;
+  border-radius: 999px;
   background: rgba(128, 128, 128, 0.28);
   background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
   animation: pulse 1.3s ease-in-out infinite;
@@ -1216,38 +1497,39 @@ body {
 
 @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.75; } }
 
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 4px; }
+.actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 3px; }
 
 button.action {
+  --action-accent: var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
   font-family: inherit;
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: 9px;
   cursor: pointer;
-  border: 1px solid var(--vscode-button-border, transparent);
-  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.16));
-  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--action-accent);
+  background: color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent);
+  color: var(--vscode-foreground);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 
-button.action:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.26)); }
-
-button.action.primary {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+button.action:hover {
+  background: color-mix(in srgb, var(--vscode-list-hoverBackground) 88%, transparent);
+  border-color: color-mix(in srgb, var(--action-accent) 76%, var(--vscode-foreground));
 }
 
-button.action.primary:hover { background: var(--vscode-button-hoverBackground); }
+button.action:active { transform: translateY(1px); }
+
+button.action:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+button.action.claude { --action-accent: color-mix(in srgb, var(--vsignal-claude) 58%, transparent); }
+button.action.codex { --action-accent: color-mix(in srgb, #aeb4bd 48%, transparent); }
+button.action.gemini { --action-accent: color-mix(in srgb, var(--vsignal-gemini) 58%, transparent); }
 
 button.action.wide { grid-column: 1 / -1; }
 
-button.action.quiet {
-  grid-column: 1 / -1;
-  background: none;
-  border-color: transparent;
-  color: var(--vscode-descriptionForeground);
-}
-
-button.action.quiet:hover { color: var(--vscode-foreground); background: rgba(128, 128, 128, 0.12); }
+button.action.quiet { grid-column: 1 / -1; color: var(--vscode-descriptionForeground); }
 
 /* Colonne etroite : on retire le superflu plutot que de laisser deborder. */
 /* Le delai avant reinitialisation ne disparait jamais : il se condense. */
@@ -1257,17 +1539,24 @@ button.action.quiet:hover { color: var(--vscode-foreground); background: rgba(12
 @media (max-width: 300px) {
   .reset .full { display: none; }
   .reset .mid { display: inline; }
+  .actions { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 240px) {
   .reset .mid { display: none; }
   .reset .tight { display: inline; }
+  .row { flex-wrap: wrap; }
+  .language-select { flex-basis: 100%; max-width: 100%; }
 }
 
 @media (max-width: 260px) {
-  body { padding: 12px 9px 18px; }
-  .card { padding: 10px; }
-  .actions { grid-template-columns: 1fr; }
+  body { padding: 7px 6px 11px; }
+  .card { padding: 7px; }
+  .quota-card { padding: 0; }
+  .quota-agent { padding: 7px; }
+  .quota-body { padding: 0 7px; }
+  .badge { font-size: 12.5px; }
+  .provider-icon { width: 23px; height: 23px; padding: 4px; }
 }
 `;
 
@@ -1344,6 +1633,9 @@ function barColor(percent) {
 
 function renderStatus(state) {
   T = state.strings || T;
+  visibleQuotaAgents = Array.isArray(state.visibleAgents)
+    ? state.visibleAgents.filter(agent => QUOTA_AGENT_NAMES.includes(agent))
+    : [...QUOTA_AGENT_NAMES];
   document.documentElement.lang = state.language || 'en';
 
   const pill = document.getElementById('status-pill');
@@ -1354,6 +1646,7 @@ function renderStatus(state) {
   applyText('[data-text="sectionActions"]', T.sectionActions);
   applyText('[data-text="testClaude"]', T.testClaude);
   applyText('[data-text="testCodex"]', T.testCodex);
+  applyText('[data-text="testGemini"]', T.testGemini);
   applyText('[data-text="repairHooks"]', T.repairHooks);
   applyText('[data-text="removeHooks"]', T.removeHooks);
 
@@ -1362,12 +1655,27 @@ function renderStatus(state) {
     refreshButton.title = T.refreshQuotas;
     refreshButton.setAttribute('aria-label', T.refreshQuotas);
   }
+  for (const button of document.querySelectorAll('.agent-refresh')) {
+    const label = fmt(T.refreshAgentQuota, button.dataset.agent);
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
 
   const prefs = document.getElementById('prefs');
   prefs.innerHTML = '';
   for (const group of state.groups) {
-    const block = el('div', 'group');
-    block.appendChild(el('div', 'group-caption', group.caption));
+    const block = el('div', 'group' + (group.agent ? ' provider-settings ' + group.agent.toLowerCase() : ''));
+    const caption = el('div', 'group-caption');
+    if (group.agent && AGENT_LOGOS[group.agent]) {
+      const mark = el('span', 'settings-provider-mark');
+      const image = document.createElement('img');
+      image.src = AGENT_LOGOS[group.agent];
+      image.alt = '';
+      mark.appendChild(image);
+      caption.appendChild(mark);
+    }
+    caption.appendChild(el('span', null, group.caption));
+    block.appendChild(caption);
     for (const item of group.items) {
       const row = el('div', 'row');
       const name = el('div', 'name');
@@ -1391,14 +1699,50 @@ function renderStatus(state) {
 // place et la transition CSS fait le reste.
 let quotaShape = '';
 const quotaCells = new Map();
+const agentFreshness = new Map();
+let allQuotasLoading = false;
+const agentsLoading = new Set();
+
+function updateLoadingButtons() {
+  const global = document.getElementById('refresh');
+  if (global) {
+    global.classList.toggle('busy', allQuotasLoading);
+    global.disabled = allQuotasLoading;
+  }
+  for (const button of document.querySelectorAll('.agent-refresh')) {
+    const busy = allQuotasLoading || agentsLoading.has(button.dataset.agent);
+    button.classList.toggle('busy', busy);
+    button.disabled = busy;
+  }
+}
+
+function renderAgentLoading(payload) {
+  if (!payload || !QUOTA_AGENT_NAMES.includes(payload.agent)) return;
+  if (payload.loading) agentsLoading.add(payload.agent);
+  else agentsLoading.delete(payload.agent);
+  updateLoadingButtons();
+}
+
+function refreshIcon() {
+  const button = el('button', 'icon-button agent-refresh');
+  button.type = 'button';
+  button.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M13.6 7a5.7 5.7 0 1 0-.5 3.4"/><path d="M13.9 3.1v3.6h-3.6"/></svg>';
+  return button;
+}
+
+const QUOTA_AGENT_NAMES = ['Claude', 'Codex', 'Gemini'];
+let visibleQuotaAgents = [...QUOTA_AGENT_NAMES];
 
 function shapeOf(agents) {
   return agents.map(entry => entry.agent + ':' + entry.values.map(v => v.window).join(',')).join('|');
 }
 
 function renderQuotas(payload) {
-  const refresh = document.getElementById('refresh');
-  if (refresh) refresh.classList.toggle('busy', Boolean(payload.loading));
+  if (Array.isArray(payload.visibleAgents)) {
+    visibleQuotaAgents = payload.visibleAgents.filter(agent => QUOTA_AGENT_NAMES.includes(agent));
+  }
+  allQuotasLoading = Boolean(payload.loading);
+  updateLoadingButtons();
 
   // Une lecture en cours ne doit rien changer a l'ecran : les valeurs
   // affichees restent les dernieres connues jusqu'a l'arrivee des nouvelles.
@@ -1407,8 +1751,6 @@ function renderQuotas(payload) {
     return;
   }
   if (payload.loading && quotaCells.size) return;
-
-  lastQuotaAt = payload.at || lastQuotaAt;
 
   const shape = shapeOf(payload.agents);
   if (shape !== quotaShape || !quotaCells.size) {
@@ -1422,8 +1764,12 @@ function renderQuotas(payload) {
 function showSkeleton() {
   const host = document.getElementById('quotas');
   host.innerHTML = '';
-  for (let index = 0; index < 2; index++) {
-    const block = el('div', 'quota-agent');
+  if (!visibleQuotaAgents.length) {
+    host.appendChild(el('div', 'muted quota-empty-provider', T.noProvider || ''));
+    return;
+  }
+  for (const agent of visibleQuotaAgents) {
+    const block = el('div', 'quota-agent ' + agent.toLowerCase());
     block.appendChild(el('div', 'muted', T.loadingQuotas || ''));
     const skeleton = el('div', 'skeleton');
     skeleton.style.marginTop = '8px';
@@ -1436,21 +1782,68 @@ function buildQuotas(agents) {
   const host = document.getElementById('quotas');
   host.innerHTML = '';
   quotaCells.clear();
+  agentFreshness.clear();
+
+  if (!agents.length) {
+    host.appendChild(el('div', 'muted quota-empty-provider', T.noProvider || ''));
+    return;
+  }
 
   for (const entry of agents) {
-    const block = el('div', 'quota-agent');
+    const block = el('div', 'quota-agent ' + entry.agent.toLowerCase());
     const head = el('div', 'quota-head');
-    head.appendChild(el('span', 'badge ' + entry.agent.toLowerCase(), entry.agent));
+    const badge = el('span', 'badge ' + entry.agent.toLowerCase());
+    const mark = el('span', 'provider-icon');
+    const image = document.createElement('img');
+    image.src = AGENT_LOGOS[entry.agent];
+    image.alt = '';
+    mark.appendChild(image);
+    badge.appendChild(mark);
+    badge.appendChild(el('span', 'provider-name', entry.agent));
+    head.appendChild(badge);
+
+    const headActions = el('span', 'quota-head-actions');
+    const freshness = el('span', 'agent-freshness');
+    freshness.dataset.at = String(entry.sourceAt || 0);
+    freshness.textContent = freshnessText(entry.sourceAt, true);
+    freshness.title = freshnessText(entry.sourceAt, false);
+    agentFreshness.set(entry.agent, freshness);
+    headActions.appendChild(freshness);
+
+    const refresh = refreshIcon();
+    refresh.dataset.agent = entry.agent;
+    refresh.title = fmt(T.refreshAgentQuota, entry.agent);
+    refresh.setAttribute('aria-label', refresh.title);
+    refresh.addEventListener('click', () => {
+      agentsLoading.add(entry.agent);
+      updateLoadingButtons();
+      send({ type: 'refreshQuota', agent: entry.agent });
+    });
+    headActions.appendChild(refresh);
+    head.appendChild(headActions);
     block.appendChild(head);
 
+    const body = el('div', 'quota-body');
+
     if (!entry.values.length) {
-      block.appendChild(el('div', 'muted', entry.agent === 'Claude' ? T.waitingClaude : T.noCodex));
+      const emptyText = entry.agent === 'Claude'
+        ? T.waitingClaude
+        : entry.agent === 'Gemini'
+          ? T.noGemini
+          : T.noCodex;
+      body.appendChild(el('div', 'muted quota-empty', emptyText));
+      block.appendChild(body);
       host.appendChild(block);
       continue;
     }
 
     for (const value of entry.values) {
       const line = el('div', 'quota-line');
+      line.appendChild(el(
+        'div',
+        'quota-label',
+        value.window === '5 h' ? T.usageShort : T.usageWeekly
+      ));
       const meta = el('div', 'quota-meta');
       const left = el('span', 'muted left');
       left.appendChild(el('span', 'window'));
@@ -1473,28 +1866,38 @@ function buildQuotas(agents) {
       const fill = el('div', 'fill');
       track.appendChild(fill);
       line.appendChild(track);
-      block.appendChild(line);
+      body.appendChild(line);
 
       quotaCells.set(entry.agent + '|' + value.window, {
         window: left.querySelector('.window'), reset, full, mid, tight, right, fill
       });
     }
 
+    block.appendChild(body);
     host.appendChild(block);
   }
 
-  host.appendChild(freshnessLine());
+  updateLoadingButtons();
 }
 
 function updateQuotas(agents) {
   for (const entry of agents) {
+    const freshness = agentFreshness.get(entry.agent);
+    if (freshness) {
+      freshness.dataset.at = String(entry.sourceAt || 0);
+      freshness.textContent = freshnessText(entry.sourceAt, true);
+      freshness.title = freshnessText(entry.sourceAt, false);
+    }
+
     for (const value of entry.values) {
       const cell = quotaCells.get(entry.agent + '|' + value.window);
       if (!cell) continue;
 
       cell.window.textContent = localize(value.window);
       cell.right.textContent = value.percent + ' %';
-      cell.fill.style.background = barColor(value.percent);
+      const color = barColor(value.percent);
+      cell.right.style.color = color;
+      cell.fill.style.background = color;
       cell.fill.style.width = value.percent + '%';
 
       if (value.reset) {
@@ -1511,38 +1914,31 @@ function updateQuotas(agents) {
     }
   }
 
-  const line = document.getElementById('freshness');
-  if (line) line.textContent = freshnessText();
 }
 
-// Sans repere, rien ne distingue un panneau a jour d'un panneau fige.
-let lastQuotaAt = 0;
-
-function freshnessLine() {
-  const line = el('div', 'freshness');
-  line.id = 'freshness';
-  line.textContent = freshnessText();
-  return line;
-}
-
-function freshnessText() {
-  if (!lastQuotaAt) return '';
-  const seconds = Math.max(0, Math.round((Date.now() - lastQuotaAt) / 1000));
-  if (seconds < 45) return T.freshNow || '';
+function freshnessText(sourceAt, compact) {
+  if (!sourceAt) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - sourceAt) / 1000));
+  if (seconds < 45) return compact ? (T.freshCompactNow || '') : (T.freshNow || '');
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return fmt(T.freshMinutes, minutes);
-  return fmt(T.freshHours, Math.round(minutes / 60));
+  if (minutes < 60) return compact ? minutes + ' min' : fmt(T.freshMinutes, minutes);
+  const hours = Math.round(minutes / 60);
+  return compact ? hours + ' h' : fmt(T.freshHours, hours);
 }
 
 setInterval(() => {
-  const line = document.getElementById('freshness');
-  if (line) line.textContent = freshnessText();
+  for (const freshness of agentFreshness.values()) {
+    const sourceAt = Number(freshness.dataset.at || 0);
+    freshness.textContent = freshnessText(sourceAt, true);
+    freshness.title = freshnessText(sourceAt, false);
+  }
 }, 10000);
 
 window.addEventListener('message', event => {
   const message = event.data;
   if (message.type === 'state') renderStatus(message);
   if (message.type === 'quotas') renderQuotas(message);
+  if (message.type === 'quotaLoading') renderAgentLoading(message);
 });
 
 for (const button of document.querySelectorAll('[data-command]')) {
@@ -1574,8 +1970,8 @@ class ControlPanelProvider {
   constructor(context) {
     this.context = context;
     this.view = undefined;
-    this.values = { Claude: null, Codex: null };
-    this.sourceAt = { Claude: 0, Codex: 0 };
+    this.values = { Claude: null, Codex: null, Gemini: null };
+    this.sourceAt = { Claude: 0, Codex: 0, Gemini: 0 };
   }
 
   isVisible() {
@@ -1601,12 +1997,19 @@ class ControlPanelProvider {
   receive(message) {
     if (!message || typeof message !== 'object') return;
 
+    if (message.type === 'refreshQuota' && QUOTA_AGENTS.includes(message.agent)) {
+      this.setAgentQuotaLoading(message.agent, true);
+      void refreshAgentQuota(this.context, message.agent);
+      return;
+    }
+
     if (message.type === 'command') {
       const allowed = new Set([
         'vsignal.toggle',
         'vsignal.setup',
         'vsignal.testClaude',
         'vsignal.testCodex',
+        'vsignal.testGemini',
         'vsignal.refreshQuotas',
         'vsignal.removeHooks'
       ]);
@@ -1641,8 +2044,10 @@ class ControlPanelProvider {
       enabled: isEnabled(),
       language: currentLanguage(),
       strings: t(),
+      visibleAgents: this.visibleAgents(),
       groups: settingGroups(t()).map(group => ({
         caption: group.caption,
+        agent: group.agent,
         items: group.items.map(item => ({
           key: item.key,
           label: item.label,
@@ -1659,40 +2064,54 @@ class ControlPanelProvider {
       }))
     });
 
-    if (force || (!this.values.Claude && !this.values.Codex)) this.showQuotaLoading();
+    if (force || (!this.values.Claude && !this.values.Codex && !this.values.Gemini)) this.showQuotaLoading();
     else this.postQuotas(false);
-    void refreshAllQuotas(this.context, force);
+    void refreshAllQuotas(this.context, force, force);
   }
 
   postQuotas(loading) {
-    const sourceTimes = Object.entries(this.values)
-      .filter(([, values]) => Array.isArray(values) && values.length)
-      .map(([agent]) => this.sourceAt[agent])
-      .filter(value => Number.isFinite(value) && value > 0);
-
+    const visible = new Set(this.visibleAgents());
     this.post({
       type: 'quotas',
       loading: Boolean(loading),
-      // La ligne de fraicheur indique la donnee la plus ancienne affichee.
-      // Relire un cache ne le fait donc plus passer pour une donnee instantanee.
-      at: sourceTimes.length ? Math.min(...sourceTimes) : 0,
-      // Le panneau montre toujours les quatre fenetres, meme celles masquees
-      // dans les popups.
+      visibleAgents: [...visible],
+      // Les preferences de popup et de panneau restent independantes : chaque
+      // carte visible montre toutes les fenetres disponibles du fournisseur.
       agents: [
-        { agent: 'Claude', values: this.values.Claude || [] },
-        { agent: 'Codex', values: this.values.Codex || [] }
-      ]
+        { agent: 'Claude', values: this.values.Claude || [], sourceAt: this.sourceAt.Claude },
+        { agent: 'Codex', values: this.values.Codex || [], sourceAt: this.sourceAt.Codex },
+        { agent: 'Gemini', values: this.values.Gemini || [], sourceAt: this.sourceAt.Gemini }
+      ].filter(entry => visible.has(entry.agent))
     });
   }
 
+  visibleAgents() {
+    const config = vscode.workspace.getConfiguration('vsignal');
+    return PANEL_PROVIDER_PREFERENCES
+      .filter(item => config.get(item.key, true))
+      .map(item => item.agent);
+  }
+
   showQuotaLoading() {
-    const first = !this.values.Claude && !this.values.Codex;
-    if (first) this.post({ type: 'quotas', loading: true });
+    const first = !this.values.Claude && !this.values.Codex && !this.values.Gemini;
+    if (first) this.post({ type: 'quotas', loading: true, visibleAgents: this.visibleAgents() });
     else this.postQuotas(true);
   }
 
+  setAgentQuotaLoading(agent, loading) {
+    this.post({ type: 'quotaLoading', agent, loading: Boolean(loading) });
+  }
+
+  applyAgentQuota(agent, next) {
+    if (next.values.length || this.values[agent] === null) {
+      this.values[agent] = next.values;
+      this.sourceAt[agent] = next.sourceAt;
+    }
+    this.postQuotas(false);
+  }
+
   applyQuotaSnapshot(snapshot) {
-    for (const agent of ['Claude', 'Codex']) {
+    for (const agent of QUOTA_AGENTS) {
       const next = snapshot[agent];
       // Une panne ponctuelle de PowerShell ou de l'app-server ne doit pas
       // effacer une valeur connue. Au premier passage seulement, l'etat vide
@@ -1707,24 +2126,34 @@ class ControlPanelProvider {
 
   render(webview) {
     const nonce = createNonce();
+    const logos = Object.fromEntries(QUOTA_AGENTS.map(agent => [
+      agent,
+      webview.asWebviewUri(vscode.Uri.joinPath(
+        this.context.extensionUri,
+        'media',
+        `${agent.toLowerCase()}-mark.svg`
+      )).toString()
+    ]));
     return [
       '<!DOCTYPE html>',
       `<html lang="${currentLanguage()}"><head><meta charset="UTF-8">`,
       '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-      `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">`,
+      `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">`,
       `<style>${PANEL_STYLE}</style></head><body>`,
       '<div class="masthead">',
       '<div class="wordmark">',
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M4 4.5 12 21 20 4.5"/><circle fill="currentColor" cx="12" cy="10" r="1.6"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8.7 7.7a4.7 4.7 0 0 1 6.6 0M6.2 5.3a8.2 8.2 0 0 1 11.6 0"/></svg>',
       'VSignal</div>',
+      '<div class="masthead-actions">',
       '<span id="status-pill" class="pill off">…</span>',
-      '</div>',
-      '<div class="card quota-card">',
-      '<button class="icon-button floating" id="refresh" type="button" data-command="vsignal.refreshQuotas"',
+      '<button class="icon-button global-refresh" id="refresh" type="button" data-command="vsignal.refreshQuotas"',
       ' title="Refresh quotas" aria-label="Refresh quotas">',
       '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">',
       '<path d="M13.6 7a5.7 5.7 0 1 0-.5 3.4"/><path d="M13.9 3.1v3.6h-3.6"/>',
       '</svg></button>',
+      '</div>',
+      '</div>',
+      '<div class="card quota-card">',
       '<div id="quotas"></div>',
       '</div>',
       '<div class="section">',
@@ -1741,12 +2170,13 @@ class ControlPanelProvider {
       '</button>',
       '</div>',
       '<div class="actions" id="actions">',
-      '<button class="action primary" data-command="vsignal.testClaude" type="button" data-text="testClaude"></button>',
-      '<button class="action primary" data-command="vsignal.testCodex" type="button" data-text="testCodex"></button>',
+      '<button class="action claude" data-command="vsignal.testClaude" type="button" data-text="testClaude"></button>',
+      '<button class="action codex" data-command="vsignal.testCodex" type="button" data-text="testCodex"></button>',
+      '<button class="action gemini" data-command="vsignal.testGemini" type="button" data-text="testGemini"></button>',
       '<button class="action wide" data-command="vsignal.setup" type="button" data-text="repairHooks"></button>',
       '<button class="action quiet" data-command="vsignal.removeHooks" type="button" data-text="removeHooks"></button>',
       '</div>',
-      `<script nonce="${nonce}">${PANEL_SCRIPT}</script>`,
+      `<script nonce="${nonce}">const AGENT_LOGOS = ${JSON.stringify(logos)};${PANEL_SCRIPT}</script>`,
       '</body></html>'
     ].join('\n');
   }
@@ -1769,11 +2199,12 @@ function activate(context) {
     vscode.commands.registerCommand('vsignal.toggle', toggleEnabled),
     vscode.commands.registerCommand('vsignal.refreshQuotas', () => {
       if (controlPanelProvider) controlPanelProvider.showQuotaLoading();
-      void refreshAllQuotas(context, true);
+      void refreshAllQuotas(context, true, true);
     }),
     vscode.commands.registerCommand('vsignal.setup', () => setup(context, true)),
     vscode.commands.registerCommand('vsignal.testClaude', () => runTest(context, 'Claude')),
     vscode.commands.registerCommand('vsignal.testCodex', () => runTest(context, 'Codex')),
+    vscode.commands.registerCommand('vsignal.testGemini', () => runTest(context, 'Gemini')),
     vscode.commands.registerCommand('vsignal.showStatus', () => {
       const strings = t();
       vscode.window.showInformationMessage(
@@ -1796,6 +2227,9 @@ function activate(context) {
         if (controlPanelProvider) controlPanelProvider.refresh();
       }
       if (event.affectsConfiguration('vsignal.alert')) {
+        if (controlPanelProvider) controlPanelProvider.refresh();
+      }
+      if (event.affectsConfiguration('vsignal.panel.providers')) {
         if (controlPanelProvider) controlPanelProvider.refresh();
       }
       if (event.affectsConfiguration('vsignal.language')) {

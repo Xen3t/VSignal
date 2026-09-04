@@ -22,15 +22,17 @@ For migration only, VSignal may read `%USERPROFILE%\.agent-notifications\disable
 ## Quota sources
 
 - Claude quota snapshots are read from `%USERPROFILE%\.claude.json`.
+- For a fresh manual reading, VSignal reads Claude Code's OAuth access token from `%USERPROFILE%\.claude\.credentials.json` in memory and sends it only to `https://api.anthropic.com/api/oauth/usage`. The token is never logged or stored by VSignal. Automatic calls reuse a local result for up to five minutes and fall back to local snapshots on authentication, rate-limit, or network errors.
 - To account for a snapshot that lags behind a quota refusal, VSignal enumerates `%USERPROFILE%\.claude\projects`, opens only `.jsonl` files modified after that snapshot, and parses at most the last 300 lines of each candidate until both quota windows are found.
 - Codex quotas are read by starting the locally installed `codex app-server` and requesting `account/rateLimits/read` through its standard input and output. VSignal does not read or store authentication tokens.
+- Gemini's weekly quota is read from the JSON output of the locally installed Antigravity CLI command `agy /quota`. Authentication and the request to Google's quota service are handled by `agy`; VSignal does not read its credentials.
 
 ## Data handling
 
 - Hook payloads are processed in memory to classify the final state and are not persisted.
 - Conversation text is not sent anywhere by VSignal.
 - Cached local state is limited to quota percentages, reset timestamps, task baselines, popup preferences, and alert-transition baselines.
-- VSignal makes no network request of its own. Claude and Codex data stays on the machine, apart from any communication performed independently by those installed applications.
+- VSignal's only direct network request is the Claude usage read described above, sent to Anthropic. Codex and Gemini usage are read through their locally installed command-line applications.
 - The popup is rendered locally with Windows PowerShell 5.1 and WPF.
 
 ## Reporting a vulnerability

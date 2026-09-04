@@ -2,6 +2,22 @@
 
 Toutes les modifications importantes de VSignal sont documentées ici.
 
+## 1.8.2 — 2026-09-04
+
+- Ajout de la limite hebdomadaire Gemini dans le panneau, lue via la sortie JSON de la commande locale `agy /quota` et convertie en pourcentage consommé.
+- Refonte visuelle du panneau avec une carte dédiée par fournisseur, Codex conservant une identité strictement monochrome.
+- Ajout d’un bouton d’actualisation global dans l’en-tête et d’un bouton indépendant dans chaque carte fournisseur.
+- Les cartes utilisent désormais les marques officielles Claude, Codex et Gemini et restent lisibles à la largeur minimale du panneau.
+- L’âge des données est séparé par fournisseur et apparaît discrètement à gauche de chaque bouton d’actualisation au lieu d’occuper une carte globale.
+- Le bouton d’actualisation interroge maintenant la source d’usage OAuth de Claude au lieu de republier aveuglément `cachedUsageUtilization`.
+- Les lectures automatiques réutilisent au maximum cinq minutes le dernier relevé réseau pour éviter les limitations `429`, puis retombent sur les snapshots locaux en cas d’erreur.
+- Un snapshot local dont l’heure de remise à zéro est dépassée ne conserve plus son ancien pourcentage indéfiniment : la fenêtre repasse à zéro.
+- Les paramètres sont désormais regroupés logiquement par fournisseur : visibilité, contenu des popups et alertes sont réunis sous Claude, Codex ou Gemini.
+- Gemini dispose désormais de ses réglages de popup et d’alertes, ainsi que d’une action de test avec sa marque et son quota hebdomadaire.
+- Les cartes Claude, Codex et Gemini peuvent être affichées ou masquées séparément depuis les paramètres du panneau.
+- Les boutons des sections repliables partagent désormais les surfaces, bordures, rayons et retours d’interaction du reste du panneau.
+- Les notifications adoptent un format horizontal compact avec fond sombre translucide, bordure lumineuse et onde décorative aux couleurs du fournisseur, action `Voir` et fermeture séparée.
+
 ## 1.8.1 — 2026-09-03
 
 - La configuration Codex accepte désormais les tableaux `notify` multilignes et commentés, préserve les clés appartenant à d’autres tables TOML et évite toute duplication invalidante.

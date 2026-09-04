@@ -45,8 +45,8 @@ test('activation performs no file or watcher work outside Windows', () => {
     const context = { subscriptions: [] };
     extension.activate(context);
 
-    assert.equal(registered.length, 7);
-    assert.equal(context.subscriptions.length, 7);
+    assert.equal(registered.length, 8);
+    assert.equal(context.subscriptions.length, 8);
   } finally {
     Module._load = originalLoad;
     Object.defineProperty(process, 'platform', originalPlatform);

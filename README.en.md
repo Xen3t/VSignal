@@ -12,13 +12,13 @@ VSignal displays a discreet Windows popup whenever a Claude or Codex task finish
 
 ## Features
 
-- Always-on-top WPF popup in the upper-right corner of the screen, with the model brand, a title, an explanatory subtitle, and a lifetime bar showing the time left before it closes.
-- Hovering pauses the close timer and restarts it from zero; clicking closes the popup immediately.
-- **The brand identifies the model; the color indicates severity.** The Claude or Codex logo identifies the sender, while green, orange, and red are reserved for quota status and never represent model identity.
+- Horizontal WPF popup in the upper-right corner: translucent dark surface, provider-colored glow and waveform, model brand, title, subtitle, and lifetime bar.
+- Hovering pauses the close timer and restarts it from zero; clicking the card or `Open` brings VS Code to the foreground, while the close icon only dismisses the popup.
+- **The brand identifies the model; the color indicates severity.** The Claude, Codex, or Gemini logo identifies the sender, while green, orange, and red remain reserved for quota status.
 - A message adapted to the situation: task completed, question, blockage, code changed, or tests passed.
 - `5 h` and `7 d` quota bars shown as **used** percentages, like Claude Code's `/usage`: green while there is plenty of headroom, orange from 60%, and red from 80%.
 - A compact `+N%` indicator on the right side of the popup showing the completed task's `5 h` quota cost, which can be disabled separately for Claude and Codex.
-- A dedicated VS Code panel: both models' quotas remain visible while everything else can be collapsed with one click.
+- A dedicated VS Code panel: keep the Claude, Codex, and Gemini quotas you choose visible while everything else can be collapsed with one click.
 - Automatic alerts when a quota window becomes low **or** resets, configurable separately for each model.
 - Automatic setup whenever VS Code starts, regardless of which project is open.
 - No VSignal server, telemetry, or native Windows notification.
@@ -28,7 +28,7 @@ VSignal displays a discreet Windows popup whenever a Claude or Codex task finish
 
 - Windows 11
 - VS Code 1.85 or later
-- Claude Code and/or Codex installed and signed in within VS Code
+- Claude Code, Codex, and/or Antigravity CLI (`agy`) installed and signed in
 
 VSignal only uses Windows PowerShell 5.1 and WPF, which are already included with Windows.
 
@@ -59,8 +59,8 @@ Then install the generated `vsignal-*.vsix` file from the project root.
 
 The VSignal panel in the Activity Bar brings everything together:
 
-- **Quotas** occupy the top of the panel without a heading or collapse control: the `5 h` and `7 d` windows for both models are always shown in full, each below a provider-colored badge. The refresh button sits in the upper-right corner and spins while data is being read.
-- **Settings** — language (`Automatic / Français / English`), `Notifications`, popup contents, and per-model alerts.
+- **Quotas** occupy the top of the panel without a heading or collapse control: selected providers are shown in dedicated cards. Each card has its own refresh button; the button beside the `Active` status refreshes them all.
+- **Settings** — one general group followed by a complete group for each provider (`Claude`, `Codex`, `Gemini`) containing its visibility, popup quotas, and alerts.
 - **Actions** — test each model, repair hooks, or remove them.
 
 `Settings` and `Actions` collapse when their headings are clicked, and their state is remembered. This lets the panel shrink to quotas only without making the controls inaccessible.
@@ -76,16 +76,17 @@ The same actions are available in the Command Palette:
 - `VSignal: Set up Claude and Codex`
 - `VSignal: Test Claude`
 - `VSignal: Test Codex`
+- `VSignal: Test Gemini`
 - `VSignal: Show status`
 - `VSignal: Remove hooks`
 
 ### When are quotas refreshed?
 
-As long as VS Code is open, VSignal reads **Claude and Codex every minute** while the panel is visible or at least one quota alert is enabled. Both reads start together and their results are only published after both have returned, so the panel and alerts always share the same snapshot.
+As long as VS Code is open, VSignal reads **Claude and Codex every minute** while the panel is visible or at least one quota alert is enabled. It reads Gemini's weekly limit through the local `agy /quota` command when its card is visible or one of its alerts is enabled. The reads start together and are published once they return.
 
-Additional reads, limited to once every 20 seconds, are triggered by changes to `~/.claude.json`—whose timestamp is polled to handle temporary-file writes followed by renames—and whenever the VS Code window regains focus. The refresh button forces an immediate read.
+Additional reads, limited to once every 20 seconds, are triggered by changes to `~/.claude.json`—whose timestamp is polled to handle temporary-file writes followed by renames—and whenever the VS Code window regains focus. The refresh button forces a fresh Claude usage read; automatic reads reuse that result for up to five minutes to avoid saturating the OAuth endpoint.
 
-Nothing moves while a read is in progress: the last known values remain visible, the DOM is not rebuilt, and only changed values are updated in place. The bars glide to their new lengths instead of restarting from zero. The `Data is ... old` line reports the actual age of the oldest displayed snapshot, not the time since VSignal last checked it.
+Nothing moves while a read is in progress: the last known values remain visible, the DOM is not rebuilt, and only changed values are updated in place. The bars glide to their new lengths instead of restarting from zero. Each card discreetly shows the age of its own reading to the left of its refresh button.
 
 The usage snapshot written by Claude Code can lag by a few minutes. If Claude logs a quota-exceeded refusal in the meantime, VSignal cross-checks that local log against the snapshot and immediately shows 100% for the affected window without reading account credentials.
 
@@ -93,7 +94,7 @@ A Codex read briefly starts a `codex app-server`. Event-driven Claude refreshes,
 
 ### Quota alerts
 
-VSignal monitors both the `5 h` and `7 d` windows for each model and reports two events:
+VSignal monitors Claude and Codex's `5 h` and `7 d` windows, plus Gemini's `7 d` window, and reports two events:
 
 - **Low quota** — the window crosses the usage threshold. A red popup reminds you how much remains.
 - **Reset** — the window resets to zero. A green popup indicates that the model is available again.
@@ -104,15 +105,17 @@ Both alerts trigger on **transitions**, never continuously: the low-quota alert 
 | --- | --- |
 | `vsignal.alert.lowQuota.claude` | Notify when a Claude window becomes low |
 | `vsignal.alert.lowQuota.codex` | Notify when a Codex window becomes low |
+| `vsignal.alert.lowQuota.gemini` | Notify when the Gemini window becomes low |
 | `vsignal.alert.reset.claude` | Notify when a Claude window resets |
 | `vsignal.alert.reset.codex` | Notify when a Codex window resets |
+| `vsignal.alert.reset.gemini` | Notify when the Gemini window resets |
 | `vsignal.alert.threshold` | Triggering used percentage; defaults to `90`, meaning 10% remains |
 
-These alerts ignore the four settings below: the relevant quota bar is always shown because it is the subject of the notification itself.
+These alerts ignore the five settings below: the relevant quota bar is always shown because it is the subject of the notification itself.
 
 ### Choose which quotas appear in popups
 
-An overloaded popup is hard to read. The four settings below determine what it shows; the VSignal panel continues to display all four windows regardless.
+An overloaded popup is hard to read. The five settings below determine what it shows independently from the cards selected in the VSignal panel.
 
 | Setting | Quota bar |
 | --- | --- |
@@ -120,8 +123,11 @@ An overloaded popup is hard to read. The four settings below determine what it s
 | `vsignal.popup.claude.weekly` | Claude, 7-day window |
 | `vsignal.popup.codex.fiveHours` | Codex, 5-hour window |
 | `vsignal.popup.codex.weekly` | Codex, 7-day window |
+| `vsignal.popup.gemini.weekly` | Gemini, 7-day window in tests and alerts |
 
-If both bars for a model are disabled, its popup contains only the message. Values are copied to `%USERPROFILE%\.vsignal\popup.json`, which is read by the PowerShell script.
+If every bar for a model is disabled, its test popup contains only the message. Values are copied to `%USERPROFILE%\.vsignal\popup.json`, which is read by the PowerShell script.
+
+The `vsignal.panel.providers.claude`, `vsignal.panel.providers.codex`, and `vsignal.panel.providers.gemini` settings independently select the cards shown in the extension bar. Hiding a card does not disable that provider's alerts.
 
 To test the popup engine directly from the repository:
 
@@ -146,7 +152,7 @@ VSignal may create or update the following files:
 - `%USERPROFILE%\.claude\settings.json`
 - `%USERPROFILE%\.codex\config.toml`
 
-To display Claude quotas, the extension also reads `%USERPROFILE%\.claude.json` and the tails of `.jsonl` logs modified since the latest snapshot under `%USERPROFILE%\.claude\projects`. Codex quotas are read through the local Codex App Server. A `.before-vsignal.bak` backup is created before the first modification to an existing configuration. Messages are analyzed in memory to choose the popup label, but they are neither stored nor sent by VSignal. See [SECURITY.md](SECURITY.md) for details.
+To display Claude quotas, the extension queries `https://api.anthropic.com/api/oauth/usage` with Claude Code's OAuth token, which is kept in memory only. On failure, it falls back to `%USERPROFILE%\.claude.json` and the tails of `.jsonl` logs modified since the latest snapshot under `%USERPROFILE%\.claude\projects`. Codex quotas are read through the local Codex App Server, and Gemini's quota is read from the JSON output of the local `agy /quota` command. A `.before-vsignal.bak` backup is created before the first modification to an existing configuration. Messages are analyzed in memory to choose the popup label, but they are neither stored nor sent by VSignal. See [SECURITY.md](SECURITY.md) for details.
 
 ## Uninstallation
 
@@ -154,7 +160,7 @@ Before uninstalling the extension, run `VSignal: Remove hooks` if you also want 
 
 ## Trademarks
 
-The Claude and Codex logos displayed in popups identify the model that sent the notification. They belong to Anthropic and OpenAI respectively, are not covered by VSignal's MIT license, and do not imply affiliation or endorsement.
+The Claude, Codex, and Gemini logos displayed by VSignal identify their providers. They belong to Anthropic, OpenAI, and Google respectively, are not covered by VSignal's MIT license, and do not imply affiliation or endorsement.
 
 ## License
 

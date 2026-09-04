@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('Claude', 'Codex')]
+    [ValidateSet('Claude', 'Codex', 'Gemini')]
     [string]$Agent,
 
     [ValidateSet('Done', 'Question', 'Code', 'Tested', 'Blocked', 'Quota', 'Reset')]
@@ -18,6 +18,8 @@ param(
     [string]$QuotaText = '',
 
     [switch]$PrintQuota,
+
+    [switch]$ForceQuotaRefresh,
 
     [switch]$SnapshotQuota,
 
@@ -39,6 +41,7 @@ function Get-PopupPreference {
         ClaudeWeekly = $true
         CodexShort = $true
         CodexWeekly = $true
+        GeminiWeekly = $true
         ClaudeTaskPercent = $true
         CodexTaskPercent = $true
     }
@@ -58,7 +61,7 @@ function Format-QuotaText {
     param(
         $Primary,
         $Secondary,
-        [ValidateSet('', 'Claude', 'Codex')]
+        [ValidateSet('', 'Claude', 'Codex', 'Gemini')]
         [string]$ForAgent = '',
         [switch]$ApplyPreference
     )
@@ -234,6 +237,19 @@ function ConvertTo-QuotaWindow {
         } catch {}
     }
 
+    # Un snapshot Claude n'est pas efface apres la fin de sa fenetre. Sans ce
+    # garde-fou, VSignal conserve indefiniment l'ancien pourcentage. La remise
+    # a zero est certaine a l'heure annoncee, meme sans nouvelle lecture.
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    if ($null -ne $resetsAt -and [long]$resetsAt -le $now) {
+        return [pscustomobject]@{
+            usedPercent = 0
+            windowDurationMins = $DurationMins
+            resetsAt = $null
+            observedAtMs = [Math]::Max($ObservedAtMs, [long]$resetsAt * 1000)
+        }
+    }
+
     return [pscustomobject]@{
         usedPercent = [double]$Window.utilization
         windowDurationMins = $DurationMins
@@ -406,13 +422,69 @@ function Get-ClaudeCachedQuota {
     }
 }
 
-function Get-ClaudeQuotaText {
-    param([switch]$ApplyPreference)
+# Claude Code ne propose pas encore de commande non interactive equivalente a
+# /usage. Son endpoint OAuth est la seule source fraiche disponible. Le jeton
+# reste en memoire, les appels automatiques sont espaces de cinq minutes, et
+# toute erreur retombe silencieusement sur les snapshots locaux.
+function Get-ClaudeApiQuota {
+    param([switch]$Force)
 
-    $quota = Get-ClaudeLiveQuota
-    if ($null -eq $quota -or ($null -eq $quota.Primary -and $null -eq $quota.Secondary)) {
-        $quota = Get-ClaudeCachedQuota
+    $cache = Get-ClaudeCachedQuota
+    $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    if (-not $Force -and $null -ne $cache -and $cache.ObservedAtMs -gt $nowMs - 300000) {
+        return $cache
     }
+
+    $credentialsPath = Join-Path $env:USERPROFILE '.claude\.credentials.json'
+    if (-not (Test-Path -LiteralPath $credentialsPath)) { return $null }
+
+    try {
+        $credentials = Get-Content -Raw -LiteralPath $credentialsPath -Encoding UTF8 | ConvertFrom-Json
+        $token = [string]$credentials.claudeAiOauth.accessToken
+        if (-not $token) { return $null }
+
+        $headers = @{
+            Authorization = 'Bearer {0}' -f $token
+            'anthropic-beta' = 'oauth-2025-04-20'
+            'User-Agent' = 'VSignal/1.8.2'
+        }
+        $usage = Invoke-RestMethod -Uri 'https://api.anthropic.com/api/oauth/usage' -Headers $headers -Method Get -TimeoutSec 8
+        $observedAtMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $primary = ConvertTo-QuotaWindow -Window $usage.five_hour -DurationMins 300 -ObservedAtMs $observedAtMs
+        $secondary = ConvertTo-QuotaWindow -Window $usage.seven_day -DurationMins 10080 -ObservedAtMs $observedAtMs
+        if ($null -eq $primary -and $null -eq $secondary) { return $null }
+
+        $payload = [ordered]@{
+            fetchedAtMs = $observedAtMs
+            fiveHourUsed = if ($null -ne $primary) { $primary.usedPercent } else { $null }
+            fiveHourResetsAt = if ($null -ne $primary) { $primary.resetsAt } else { $null }
+            sevenDayUsed = if ($null -ne $secondary) { $secondary.usedPercent } else { $null }
+            sevenDayResetsAt = if ($null -ne $secondary) { $secondary.resetsAt } else { $null }
+        }
+        $cachePath = Join-Path $PSScriptRoot 'claude-quota.json'
+        $temporaryPath = $cachePath + '.tmp'
+        $payload | ConvertTo-Json | Set-Content -LiteralPath $temporaryPath -Encoding UTF8
+        Move-Item -Force -LiteralPath $temporaryPath -Destination $cachePath
+
+        return [pscustomobject]@{
+            Primary = $primary
+            Secondary = $secondary
+            ObservedAtMs = $observedAtMs
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Get-ClaudeQuotaText {
+    param([switch]$ApplyPreference, [switch]$ForceRefresh)
+
+    $candidates = @(
+        Get-ClaudeApiQuota -Force:$ForceRefresh
+        Get-ClaudeLiveQuota
+        Get-ClaudeCachedQuota
+    ) | Where-Object { $null -ne $_ -and ($null -ne $_.Primary -or $null -ne $_.Secondary) }
+    $quota = $candidates | Sort-Object ObservedAtMs -Descending | Select-Object -First 1
     if ($null -eq $quota) { return '' }
 
     $script:ClaudeQuotaObservedAtMs = [long]$quota.ObservedAtMs
@@ -462,7 +534,13 @@ if ($SnapshotQuota) {
 }
 
 if ($PrintQuota) {
-    $value = if ($Agent -eq 'Codex') { Get-CodexQuotaText } else { Get-ClaudeQuotaText }
+    $value = if ($Agent -eq 'Codex') {
+        Get-CodexQuotaText
+    } elseif ($Agent -eq 'Claude') {
+        Get-ClaudeQuotaText -ForceRefresh:$ForceQuotaRefresh
+    } else {
+        ''
+    }
     if ($Agent -eq 'Claude' -and [long]$script:ClaudeQuotaObservedAtMs -gt 0) {
         [Console]::Out.WriteLine('VSignal-Source-At: {0}' -f [long]$script:ClaudeQuotaObservedAtMs)
     }
@@ -510,16 +588,20 @@ if (-not $Display) {
         }
     }
 
-    # Le panneau VS Code montre tout ; la popup ne montre que les fenetres cochees,
-    # sauf l'alerte de quota qui doit forcement afficher la barre concernee.
-    $filter = $State -ne 'Quota'
+    # La popup ne montre que les fenetres cochees, sauf les alertes de quota et
+    # de remise a zero, qui doivent forcement afficher la barre concernee.
+    $filter = $State -notin @('Quota', 'Reset')
     $script:CurrentPrimaryUsed = $null
-    $QuotaText = if ($Agent -eq 'Codex') {
-        Get-CodexQuotaText -ApplyPreference:$filter
-    } else {
-        Get-ClaudeQuotaText -ApplyPreference:$filter
+    if (-not $QuotaText) {
+        $QuotaText = if ($Agent -eq 'Codex') {
+            Get-CodexQuotaText -ApplyPreference:$filter
+        } elseif ($Agent -eq 'Claude') {
+            Get-ClaudeQuotaText -ApplyPreference:$filter
+        } else {
+            ''
+        }
     }
-    if ($State -notin @('Quota', 'Reset')) {
+    if ($Agent -ne 'Gemini' -and $State -notin @('Quota', 'Reset')) {
         $calculatedDelta = Update-TaskQuotaBaseline -ForAgent $Agent -CurrentUsed $script:CurrentPrimaryUsed
         $preference = Get-PopupPreference
         $percentField = '{0}TaskPercent' -f $Agent
@@ -542,6 +624,16 @@ if (-not $Display) {
 # ---------------------------------------------------------------------------
 
 Add-Type -AssemblyName PresentationFramework
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class VSignalNativeWindow {
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr handle);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr handle, int command);
+}
+'@
 
 # Le fichier reste en ASCII pur : les accents passent par des points de code.
 $eAcute = [string][char]0x00E9
@@ -573,6 +665,30 @@ function New-VerticalGradient {
     return $brush
 }
 
+function New-HorizontalGradient {
+    param([string]$LeftHex, [string]$MiddleHex, [string]$RightHex)
+    $brush = [System.Windows.Media.LinearGradientBrush]::new()
+    $brush.StartPoint = [System.Windows.Point]::new(0, 0)
+    $brush.EndPoint = [System.Windows.Point]::new(1, 0)
+    $null = $brush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color $LeftHex), 0))
+    $null = $brush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color $MiddleHex), 0.48))
+    $null = $brush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color $RightHex), 1))
+    return $brush
+}
+
+function Show-VSCodeWindow {
+    $candidates = @()
+    if ($env:VSCODE_PID -match '^\d+$') {
+        $preferred = Get-Process -Id ([int]$env:VSCODE_PID) -ErrorAction SilentlyContinue
+        if ($null -ne $preferred) { $candidates += $preferred }
+    }
+    $candidates += @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue | Sort-Object Id -Descending)
+    $target = $candidates | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+    if ($null -eq $target) { return }
+    $null = [VSignalNativeWindow]::ShowWindowAsync($target.MainWindowHandle, 9)
+    $null = [VSignalNativeWindow]::SetForegroundWindow($target.MainWindowHandle)
+}
+
 function New-Label {
     param(
         [string]$Content,
@@ -593,18 +709,18 @@ function New-Label {
     return $block
 }
 
-# Traces officiels des marques Claude et Codex, repris des extensions
-# anthropic.claude-code et openai.chatgpt. Ils identifient les produits ;
-# ils appartiennent a Anthropic et OpenAI et ne sont pas couverts par la
-# licence MIT de VSignal.
+# Traces des marques Claude, Codex et Gemini. Ils identifient les produits et
+# ne sont pas couverts par la licence MIT de VSignal.
 $claudeMarkPath = 'M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z'
 $codexMarkPath = 'M13.798 23.976a5.7 5.7 0 0 1-2.26-.456 6.1 6.1 0 0 1-1.903-1.27 5.7 5.7 0 0 1-1.88.311 5.75 5.75 0 0 1-2.95-.79 6.2 6.2 0 0 1-2.188-2.159q-.81-1.366-.809-3.045 0-.695.19-1.51a6.4 6.4 0 0 1-1.475-2.038A5.95 5.95 0 0 1 0 10.573Q0 9.278.547 8.08q.547-1.2 1.523-2.062a5.5 5.5 0 0 1 2.307-1.223A5.7 5.7 0 0 1 5.472 2.35 6.1 6.1 0 0 1 7.565.623 5.8 5.8 0 0 1 10.206 0q1.19 0 2.26.456a6.1 6.1 0 0 1 1.903 1.27 5.7 5.7 0 0 1 1.88-.311q1.594 0 2.95.79a6 6 0 0 1 2.165 2.159q.832 1.366.832 3.045 0 .695-.19 1.51a6.3 6.3 0 0 1 1.475 2.062q.523 1.15.523 2.422a5.9 5.9 0 0 1-.547 2.493q-.547 1.2-1.546 2.086a5.4 5.4 0 0 1-2.284 1.199 5.56 5.56 0 0 1-1.118 2.445 5.9 5.9 0 0 1-2.07 1.727 5.8 5.8 0 0 1-2.64.623m-5.876-2.997q1.19 0 2.07-.504l4.472-2.589a.53.53 0 0 0 .238-.455v-2.062L8.945 18.7a.96.96 0 0 1-1.047 0l-4.496-2.613a.7.7 0 0 1-.024.168v.287q0 1.224.571 2.254a4.24 4.24 0 0 0 1.642 1.583q1.047.6 2.331.599m.238-3.908a.6.6 0 0 0 .262.072q.118 0 .238-.072l1.784-1.031-5.734-3.357q-.522-.312-.523-.935V6.545a4.3 4.3 0 0 0-1.903 1.63 4.25 4.25 0 0 0-.714 2.398q0 1.176.595 2.254.594 1.08 1.546 1.63zm5.638 5.323q1.26 0 2.284-.576a4.3 4.3 0 0 0 1.618-1.582q.595-1.008.595-2.254v-5.179a.47.47 0 0 0-.238-.431l-1.808-1.055v6.689q0 .624-.524.935l-4.496 2.613a4.3 4.3 0 0 0 2.57.84m.904-8.776v-3.26l-2.688-1.535-2.712 1.535v3.26l2.712 1.535zM7.756 5.97q0-.623.523-.935l4.496-2.613a4.3 4.3 0 0 0-2.569-.84q-1.26 0-2.284.576A4.3 4.3 0 0 0 6.304 3.74q-.57 1.008-.57 2.254v5.155q0 .287.237.455l1.785 1.055zM19.84 17.43a4.16 4.16 0 0 0 1.88-1.63 4.33 4.33 0 0 0 .713-2.397q0-1.176-.595-2.254-.594-1.08-1.546-1.63l-4.449-2.59q-.143-.096-.261-.072a.46.46 0 0 0-.238.072L13.56 7.936l5.758 3.38a.9.9 0 0 1 .38.384q.143.216.143.528zM15.059 5.25q.524-.335 1.047 0l4.52 2.662V7.48q0-1.15-.57-2.181A4.14 4.14 0 0 0 18.46 3.62q-1.023-.623-2.379-.623-1.19 0-2.07.503L9.54 6.09a.53.53 0 0 0-.238.455v2.062z'
+$geminiMarkPath = 'M12 24C12 17.373 6.627 12 0 12 6.627 12 12 6.627 12 0c0 6.627 5.373 12 12 12-6.627 0-12 5.373-12 12Z'
 
 function New-AgentMark {
     param([string]$Agent, [double]$Size, [string]$Hex)
 
     $mark = [System.Windows.Shapes.Path]::new()
-    $mark.Data = [System.Windows.Media.Geometry]::Parse($(if ($Agent -eq 'Codex') { $codexMarkPath } else { $claudeMarkPath }))
+    $markPath = if ($Agent -eq 'Codex') { $codexMarkPath } elseif ($Agent -eq 'Gemini') { $geminiMarkPath } else { $claudeMarkPath }
+    $mark.Data = [System.Windows.Media.Geometry]::Parse($markPath)
     $mark.Fill = New-Brush $Hex
     $mark.Stretch = [System.Windows.Media.Stretch]::Uniform
     $mark.Width = $Size
@@ -625,10 +741,9 @@ function New-Bar {
 }
 
 # --- Palette ---------------------------------------------------------------
-# L'identite de l'agent tient a sa couleur d'accent et non au fond : un meme
-# fond sombre pour les deux agents rend le texte nettement plus lisible.
-$surfaceTop = '#2A2C34'
-$surfaceBottom = '#16171B'
+$agentMarkInk = if ($Agent -eq 'Claude') { '#FF7A45' } elseif ($Agent -eq 'Gemini') { '#8E8CFF' } else { '#FFFFFF' }
+$surfaceTop = if ($Agent -eq 'Claude') { '#261D1B' } elseif ($Agent -eq 'Gemini') { '#191C29' } else { '#202126' }
+$surfaceBottom = '#101218'
 $hairline = '#FFFFFF'
 $titleInk = '#F6F6F8'
 $bodyInk = '#A2AAB6'
@@ -641,9 +756,6 @@ $toneOk = '#4ADE80'
 $toneWarn = '#F5B75A'
 $toneAlert = '#F27059'
 $toneNeutral = '#FFFFFF'
-
-# Couleur de marque, utilisee uniquement pour dessiner le logo.
-$agentMarkInk = if ($Agent -eq 'Claude') { '#D97757' } else { '#FFFFFF' }
 
 # Les traductions viennent de popup.json, ecrit par l'extension : ce fichier
 # reste ainsi en ASCII pur et n'a pas sa propre copie des textes a maintenir.
@@ -662,6 +774,7 @@ $loc = [ordered]@{
     detailQuota = 'La limite approche'
     detailReset = 'La fen' + $eCirc + 'tre est repartie ' + $aGrave + ' z' + $eAcute + 'ro'
     resetIn = 'reset dans {0}'
+    viewAction = 'Voir'
     unitMin = 'min'
     unitHour = 'h'
     unitDay = 'j'
@@ -729,11 +842,15 @@ $window.Opacity = 0
 
 $card = [System.Windows.Controls.Border]::new()
 $card.Background = New-VerticalGradient $surfaceTop $surfaceBottom
-$card.BorderBrush = New-Brush $hairline 0.14
+$card.Background.Opacity = 0.97
+$borderMiddle = if ($Agent -eq 'Claude') { '#704333' } elseif ($Agent -eq 'Gemini') { '#45446F' } else { '#555860' }
+$borderEnd = '#35363D'
+$card.BorderBrush = New-HorizontalGradient $agentMarkInk $borderMiddle $borderEnd
+$card.BorderBrush.Opacity = 0.78
 $card.BorderThickness = [System.Windows.Thickness]::new(1)
-$card.CornerRadius = [System.Windows.CornerRadius]::new(18)
-$card.Padding = [System.Windows.Thickness]::new(20, 17, 22, 16)
-$card.MinWidth = 370
+$card.CornerRadius = [System.Windows.CornerRadius]::new(17)
+$card.Padding = [System.Windows.Thickness]::new(14, 12, 12, 10)
+$card.Width = [Math]::Min(540, [System.Windows.SystemParameters]::WorkArea.Width - 32)
 $card.RenderTransformOrigin = [System.Windows.Point]::new(1, 0)
 
 $scale = [System.Windows.Media.ScaleTransform]::new(0.96, 0.96)
@@ -744,21 +861,52 @@ $null = $transforms.Children.Add($slide)
 $card.RenderTransform = $transforms
 
 $shadow = [System.Windows.Media.Effects.DropShadowEffect]::new()
-$shadow.BlurRadius = 32
-$shadow.ShadowDepth = 7
+$shadow.BlurRadius = 36
+$shadow.ShadowDepth = 0
 $shadow.Direction = 270
-$shadow.Opacity = 0.5
-$shadow.Color = [System.Windows.Media.Colors]::Black
+$shadow.Opacity = 0.26
+$shadow.Color = New-Color $agentMarkInk
 $card.Effect = $shadow
+
+$cardLayer = [System.Windows.Controls.Grid]::new()
+
+# Ondes decoratives discretes, inspirees du signal audio de la maquette. Elles
+# restent derriere le contenu et reprennent uniquement la couleur du fournisseur.
+$waveCanvas = [System.Windows.Controls.Canvas]::new()
+$waveCanvas.Width = 250
+$waveCanvas.Height = 76
+$waveCanvas.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
+$waveCanvas.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$waveCanvas.Margin = [System.Windows.Thickness]::new(0, 0, 66, 0)
+$waveCanvas.ClipToBounds = $true
+$waveCanvas.IsHitTestVisible = $false
+for ($waveIndex = 0; $waveIndex -lt 10; $waveIndex++) {
+    $startY = 72 - ($waveIndex * 4)
+    $firstY = 18 + ($waveIndex * 3)
+    $middleY = 42 + ($waveIndex * 2)
+    $endY = 20 + ($waveIndex * 4)
+    $geometry = 'M 0,{0} C 38,{0} 58,{1} 98,{2} C 140,{3} 164,{4} 250,{5}' -f $startY, $firstY, $middleY, ($middleY + 12), ($firstY + 8), $endY
+    $wave = [System.Windows.Shapes.Path]::new()
+    $wave.Data = [System.Windows.Media.Geometry]::Parse($geometry)
+    $wave.Stroke = New-Brush $agentMarkInk (0.34 - ($waveIndex * 0.017))
+    $wave.StrokeThickness = 0.8
+    $waveCanvas.Children.Add($wave) | Out-Null
+}
+[System.Windows.Controls.Panel]::SetZIndex($waveCanvas, 0)
+$cardLayer.Children.Add($waveCanvas) | Out-Null
 
 $root = [System.Windows.Controls.StackPanel]::new()
 $root.Orientation = [System.Windows.Controls.Orientation]::Vertical
+[System.Windows.Controls.Panel]::SetZIndex($root, 1)
+$cardLayer.Children.Add($root) | Out-Null
 
 # --- En-tete : pastille d'etat, titre, sous-titre --------------------------
 $header = [System.Windows.Controls.Grid]::new()
 foreach ($width in @(
     [System.Windows.GridLength]::Auto,
     [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star),
+    [System.Windows.GridLength]::Auto,
+    [System.Windows.GridLength]::Auto,
     [System.Windows.GridLength]::Auto
 )) {
     $column = [System.Windows.Controls.ColumnDefinition]::new()
@@ -767,28 +915,27 @@ foreach ($width in @(
 }
 
 $badge = [System.Windows.Controls.Border]::new()
-$badge.Width = 46
-$badge.Height = 46
+$badge.Width = 52
+$badge.Height = 52
 $badge.CornerRadius = [System.Windows.CornerRadius]::new(14)
-$badge.Background = New-Brush $toneNeutral 0.06
-$isAlert = $tone -ne $toneNeutral
-$badge.BorderBrush = if ($isAlert) { New-Brush $tone 0.5 } else { New-Brush $toneNeutral 0.12 }
+$badge.Background = New-Brush $agentMarkInk 0.065
+$badge.BorderBrush = New-Brush $agentMarkInk 0.25
 $badge.BorderThickness = [System.Windows.Thickness]::new(1)
 $badge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
 
-$badge.Child = New-AgentMark -Agent $Agent -Size 25 -Hex $agentMarkInk
+$badge.Child = New-AgentMark -Agent $Agent -Size 29 -Hex $agentMarkInk
 
 $headerText = [System.Windows.Controls.StackPanel]::new()
 $headerText.Orientation = [System.Windows.Controls.Orientation]::Vertical
 $headerText.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-$headerText.Margin = [System.Windows.Thickness]::new(16, 0, 0, 0)
+$headerText.Margin = [System.Windows.Thickness]::new(14, 0, 8, 0)
 
-$title = New-Label -Content $stateInfo.Title -Size 21 -Hex $titleInk -SemiBold -Font $fontDisplay
+$title = New-Label -Content $stateInfo.Title -Size 18 -Hex $titleInk -SemiBold -Font $fontDisplay
 $title.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
 
-$subtitle = New-Label -Content $stateInfo.Detail -Size 12.5 -Hex $bodyInk
+$subtitle = New-Label -Content $stateInfo.Detail -Size 11.5 -Hex $bodyInk
 $subtitle.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
-$subtitle.Margin = [System.Windows.Thickness]::new(0, 4, 0, 0)
+$subtitle.Margin = [System.Windows.Thickness]::new(0, 3, 0, 0)
 
 $null = $headerText.Children.Add($title)
 $null = $headerText.Children.Add($subtitle)
@@ -804,13 +951,81 @@ if ($TaskDelta -match '^\+\d+%$') {
     $taskBadge.BorderBrush = New-Brush $toneNeutral 0.14
     $taskBadge.BorderThickness = [System.Windows.Thickness]::new(1)
     $taskBadge.CornerRadius = [System.Windows.CornerRadius]::new(9)
-    $taskBadge.Padding = [System.Windows.Thickness]::new(10, 5, 10, 5)
-    $taskBadge.Margin = [System.Windows.Thickness]::new(18, 0, 0, 0)
+    $taskBadge.Padding = [System.Windows.Thickness]::new(8, 4, 8, 4)
+    $taskBadge.Margin = [System.Windows.Thickness]::new(10, 0, 0, 0)
     $taskBadge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-    $taskBadge.Child = New-Label -Content $TaskDelta -Size 14 -Hex $titleInk -SemiBold
+    $taskBadge.Child = New-Label -Content $TaskDelta -Size 12 -Hex $titleInk -SemiBold
     [System.Windows.Controls.Grid]::SetColumn($taskBadge, 2)
     $null = $header.Children.Add($taskBadge)
 }
+
+$viewButton = [System.Windows.Controls.Border]::new()
+$viewButton.Width = 76
+$viewButton.Height = 38
+$viewButton.CornerRadius = [System.Windows.CornerRadius]::new(11)
+$viewButton.Background = New-Brush $hairline 0.055
+$viewButton.BorderBrush = New-Brush $agentMarkInk 0.24
+$viewButton.BorderThickness = [System.Windows.Thickness]::new(1)
+$viewButton.Margin = [System.Windows.Thickness]::new(10, 0, 8, 0)
+$viewButton.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$viewButton.Cursor = [System.Windows.Input.Cursors]::Hand
+
+$viewContent = [System.Windows.Controls.StackPanel]::new()
+$viewContent.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+$viewContent.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$viewContent.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$viewLabel = New-Label -Content $loc.viewAction -Size 12 -Hex $titleInk -SemiBold
+$viewArrow = [System.Windows.Shapes.Path]::new()
+$viewArrow.Data = [System.Windows.Media.Geometry]::Parse('M 0,5 L 14,5 M 9,1 L 14,5 L 9,9')
+$viewArrow.Stroke = New-Brush $titleInk
+$viewArrow.StrokeThickness = 1.8
+$viewArrow.StrokeStartLineCap = [System.Windows.Media.PenLineCap]::Round
+$viewArrow.StrokeEndLineCap = [System.Windows.Media.PenLineCap]::Round
+$viewArrow.Margin = [System.Windows.Thickness]::new(7, 0, 0, 0)
+$viewArrow.Width = 14
+$viewArrow.Height = 10
+$viewContent.Children.Add($viewLabel) | Out-Null
+$viewContent.Children.Add($viewArrow) | Out-Null
+$viewButton.Child = $viewContent
+[System.Windows.Controls.Grid]::SetColumn($viewButton, 3)
+$header.Children.Add($viewButton) | Out-Null
+
+$closeButton = [System.Windows.Controls.Border]::new()
+$closeButton.Width = 28
+$closeButton.Height = 36
+$closeButton.CornerRadius = [System.Windows.CornerRadius]::new(9)
+$closeButton.Background = [System.Windows.Media.Brushes]::Transparent
+$closeButton.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$closeButton.Cursor = [System.Windows.Input.Cursors]::Hand
+$closeMark = [System.Windows.Shapes.Path]::new()
+$closeMark.Data = [System.Windows.Media.Geometry]::Parse('M 2,2 L 15,15 M 15,2 L 2,15')
+$closeMark.Stroke = New-Brush $bodyInk
+$closeMark.StrokeThickness = 1.8
+$closeMark.StrokeStartLineCap = [System.Windows.Media.PenLineCap]::Round
+$closeMark.StrokeEndLineCap = [System.Windows.Media.PenLineCap]::Round
+$closeMark.Width = 17
+$closeMark.Height = 17
+$closeMark.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
+$closeMark.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+$closeButton.Child = $closeMark
+[System.Windows.Controls.Grid]::SetColumn($closeButton, 4)
+$header.Children.Add($closeButton) | Out-Null
+
+$viewButton.Add_MouseEnter({ $viewButton.Background = New-Brush $agentMarkInk 0.13 })
+$viewButton.Add_MouseLeave({ $viewButton.Background = New-Brush $hairline 0.055 })
+$viewButton.Add_MouseLeftButtonUp({
+    param($sender, $eventArgs)
+    $eventArgs.Handled = $true
+    Show-VSCodeWindow
+    Invoke-Dismiss
+})
+$closeButton.Add_MouseEnter({ $closeButton.Background = New-Brush $hairline 0.065; $closeMark.Stroke = New-Brush $titleInk })
+$closeButton.Add_MouseLeave({ $closeButton.Background = [System.Windows.Media.Brushes]::Transparent; $closeMark.Stroke = New-Brush $bodyInk })
+$closeButton.Add_MouseLeftButtonUp({
+    param($sender, $eventArgs)
+    $eventArgs.Handled = $true
+    Invoke-Dismiss
+})
 
 $null = $root.Children.Add($header)
 
@@ -848,10 +1063,10 @@ if ($QuotaText) {
             $windowLabel.MinWidth = 30
             $windowLabel.Margin = [System.Windows.Thickness]::new(1, 4, 0, 4)
 
-            $track = New-Bar -Width 168 -Height 8 -Hex $hairline -Opacity 0.11
+            $track = New-Bar -Width 132 -Height 7 -Hex $hairline -Opacity 0.11
             $track.Margin = [System.Windows.Thickness]::new(10, 4, 12, 4)
 
-            $fill = New-Bar -Width 0 -Height 8 -Hex $barTone
+            $fill = New-Bar -Width 0 -Height 7 -Hex $barTone
             $fill.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
             $track.Child = $fill
 
@@ -871,7 +1086,7 @@ if ($QuotaText) {
                 $null = $grid.Children.Add($cells[$column])
             }
 
-            $quotaFills += [pscustomobject]@{ Fill = $fill; Target = 168 * $percent / 100 }
+            $quotaFills += [pscustomobject]@{ Fill = $fill; Target = 132 * $percent / 100 }
             $rowIndex++
         }
 
@@ -884,7 +1099,7 @@ $progressTrack = [System.Windows.Controls.Border]::new()
 $progressTrack.Height = 3
 $progressTrack.CornerRadius = [System.Windows.CornerRadius]::new(1.5)
 $progressTrack.Background = New-Brush $hairline 0.07
-$progressTrack.Margin = [System.Windows.Thickness]::new(0, 16, 0, 0)
+$progressTrack.Margin = [System.Windows.Thickness]::new(0, 12, 0, 0)
 
 $progressFill = [System.Windows.Controls.Border]::new()
 $progressFill.Height = 3
@@ -895,7 +1110,7 @@ $progressFill.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
 $progressTrack.Child = $progressFill
 $null = $root.Children.Add($progressTrack)
 
-$card.Child = $root
+$card.Child = $cardLayer
 $window.Content = $card
 
 # --- Animations et cycle de vie --------------------------------------------
@@ -947,15 +1162,21 @@ function Invoke-Dismiss {
 
 $timer.Add_Tick({ Invoke-Dismiss })
 
-# Survol : le compte a rebours se fige et repart a zero ; un clic ferme.
+# Survol : le compte a rebours se fige et repart a zero. Un clic sur la carte
+# ouvre VS Code ; la croix ferme seulement la notification.
 $window.Add_MouseEnter({ Stop-Countdown })
 $window.Add_MouseLeave({ Start-Countdown })
-$window.Add_MouseLeftButtonUp({ Invoke-Dismiss })
+$card.Add_MouseLeftButtonUp({
+    param($sender, $eventArgs)
+    $eventArgs.Handled = $true
+    Show-VSCodeWindow
+    Invoke-Dismiss
+})
 
 $window.Add_ContentRendered({
     $workArea = [System.Windows.SystemParameters]::WorkArea
-    $window.Left = $workArea.Right - $window.ActualWidth - 22
-    $window.Top = $workArea.Top + 22
+    $window.Left = $workArea.Right - $window.ActualWidth - 16
+    $window.Top = $workArea.Top + 16
 
     $script:progressWidth = $progressTrack.ActualWidth
 

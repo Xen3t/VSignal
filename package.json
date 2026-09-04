@@ -2,7 +2,7 @@
   "name": "vsignal",
   "displayName": "VSignal",
   "description": "%extension.description%",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "publisher": "flowup-local",
   "license": "MIT",
   "homepage": "https://github.com/Xen3t/VSignal#readme",
@@ -22,6 +22,7 @@
   "keywords": [
     "claude",
     "codex",
+    "gemini",
     "notification",
     "popup",
     "agent",
@@ -38,6 +39,7 @@
     "onCommand:vsignal.setup",
     "onCommand:vsignal.testClaude",
     "onCommand:vsignal.testCodex",
+    "onCommand:vsignal.testGemini",
     "onCommand:vsignal.toggle",
     "onCommand:vsignal.refreshQuotas",
     "onCommand:vsignal.showStatus",
@@ -99,6 +101,12 @@
         "enablement": "isWindows"
       },
       {
+        "command": "vsignal.testGemini",
+        "title": "%command.testGemini%",
+        "category": "VSignal",
+        "enablement": "isWindows"
+      },
+      {
         "command": "vsignal.showStatus",
         "title": "%command.showStatus%",
         "category": "VSignal",
@@ -148,49 +156,85 @@
           "order": 4,
           "markdownDescription": "%configuration.popup.codex.weekly%"
         },
-        "vsignal.popup.claude.taskPercentage": {
+        "vsignal.popup.gemini.weekly": {
           "type": "boolean",
           "default": true,
           "order": 5,
+          "markdownDescription": "%configuration.popup.gemini.weekly%"
+        },
+        "vsignal.popup.claude.taskPercentage": {
+          "type": "boolean",
+          "default": true,
+          "order": 6,
           "markdownDescription": "%configuration.popup.claude.taskPercentage%"
         },
         "vsignal.popup.codex.taskPercentage": {
           "type": "boolean",
           "default": true,
-          "order": 6,
+          "order": 7,
           "markdownDescription": "%configuration.popup.codex.taskPercentage%"
         },
         "vsignal.alert.lowQuota.claude": {
           "type": "boolean",
           "default": true,
-          "order": 7,
+          "order": 8,
           "markdownDescription": "%configuration.alert.lowQuota.claude%"
         },
         "vsignal.alert.lowQuota.codex": {
           "type": "boolean",
           "default": true,
-          "order": 8,
+          "order": 9,
           "markdownDescription": "%configuration.alert.lowQuota.codex%"
         },
         "vsignal.alert.reset.claude": {
           "type": "boolean",
           "default": true,
-          "order": 9,
+          "order": 10,
           "markdownDescription": "%configuration.alert.reset.claude%"
         },
         "vsignal.alert.reset.codex": {
           "type": "boolean",
           "default": true,
-          "order": 10,
+          "order": 11,
           "markdownDescription": "%configuration.alert.reset.codex%"
+        },
+        "vsignal.alert.lowQuota.gemini": {
+          "type": "boolean",
+          "default": true,
+          "order": 12,
+          "markdownDescription": "%configuration.alert.lowQuota.gemini%"
+        },
+        "vsignal.alert.reset.gemini": {
+          "type": "boolean",
+          "default": true,
+          "order": 13,
+          "markdownDescription": "%configuration.alert.reset.gemini%"
         },
         "vsignal.alert.threshold": {
           "type": "number",
           "default": 90,
           "minimum": 50,
           "maximum": 100,
-          "order": 11,
+          "order": 14,
           "markdownDescription": "%configuration.alert.threshold%"
+        },
+        "vsignal.panel.providers.claude": {
+          "type": "boolean",
+          "default": true,
+          "order": 15,
+          "markdownDescription": "%configuration.panel.providers.claude%"
+        },
+        "vsignal.panel.providers.codex": {
+          "type": "boolean",
+          "default": true,
+          "order": 16,
+          "markdownDescription": "%configuration.panel.providers.codex%"
+        },
+        "vsignal.panel.providers.gemini": {
+          "type": "boolean",
+          "default": true,
+          "order": 17,
+          "markdownDescription": "%configuration.panel.providers.gemini%"
         },
         "vsignal.language": {
           "type": "string",
@@ -212,7 +256,7 @@
     }
   },
   "scripts": {
-    "check": "node --check extension.js && node --check lib/codex-config.js",
+    "check": "node --check extension.js && node --check lib/codex-config.js && node --check lib/gemini-quota.js",
     "test": "node --test",
     "package": "vsce package"
   },
