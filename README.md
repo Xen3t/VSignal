@@ -4,7 +4,7 @@
 
 > Les modèles répondent. VSignal vous prévient.
 
-VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex se termine dans VS Code. La notification reste indépendante du Centre de notifications Windows, s’adapte au résultat de la tâche et peut afficher les quotas restants avec leur délai de réinitialisation.
+VSignal affiche une popup Windows discrète lorsqu’une tâche Claude Code ou Codex se termine dans VS Code, et surveille les quotas Claude, Codex et Gemini. Les notifications restent indépendantes du Centre de notifications Windows, s’adaptent au résultat de la tâche et affichent les délais de réinitialisation disponibles.
 
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
 ![Windows 11](https://img.shields.io/badge/Windows-11-0078D4.svg)
@@ -13,7 +13,7 @@ VSignal affiche une popup Windows discrète lorsqu’une tâche Claude ou Codex 
 ## Fonctionnalités
 
 - Popup WPF horizontale dans le coin haut droit de l’écran : fond sombre translucide, lueur et onde aux couleurs du fournisseur, marque du modèle, titre, sous-titre et ligne de vie.
-- Le survol met la fermeture en pause et la relance à zéro ; un clic ou le bouton `Voir` remet VS Code au premier plan, tandis que la croix ferme uniquement la popup.
+- Le survol met la fermeture en pause et la relance à zéro ; seul le bouton `Voir` remet VS Code au premier plan, tandis que tout clic ailleurs ferme simplement la popup.
 - **La marque dit le modèle, la couleur dit la gravité.** Le logo Claude, Codex ou Gemini identifie l’émetteur ; le vert, l’orange et le rouge restent réservés à l’état du quota.
 - Message adapté à la situation : tâche terminée, question, blocage, code modifié ou tests validés.
 - Barres de quota `5 h` et `7 j` en pourcentage **consommé**, comme `/usage` de Claude Code : vert tant qu’il reste de la marge, orange à partir de 60 %, rouge à partir de 80 %.

@@ -849,8 +849,9 @@ $card.BorderBrush = New-HorizontalGradient $agentMarkInk $borderMiddle $borderEn
 $card.BorderBrush.Opacity = 0.78
 $card.BorderThickness = [System.Windows.Thickness]::new(1)
 $card.CornerRadius = [System.Windows.CornerRadius]::new(17)
-$card.Padding = [System.Windows.Thickness]::new(14, 12, 12, 10)
+$card.Padding = [System.Windows.Thickness]::new(0)
 $card.Width = [Math]::Min(540, [System.Windows.SystemParameters]::WorkArea.Width - 32)
+$card.ClipToBounds = $true
 $card.RenderTransformOrigin = [System.Windows.Point]::new(1, 0)
 
 $scale = [System.Windows.Media.ScaleTransform]::new(0.96, 0.96)
@@ -870,26 +871,39 @@ $card.Effect = $shadow
 
 $cardLayer = [System.Windows.Controls.Grid]::new()
 
-# Ondes decoratives discretes, inspirees du signal audio de la maquette. Elles
-# restent derriere le contenu et reprennent uniquement la couleur du fournisseur.
+# Lignes de niveau du signal : une premiere bosse courte, un creux, puis une
+# seconde bosse plus ample. Les courbes restent paralleles et s'effacent vers
+# la droite, comme sur la maquette de reference.
 $waveCanvas = [System.Windows.Controls.Canvas]::new()
-$waveCanvas.Width = 250
-$waveCanvas.Height = 76
-$waveCanvas.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Right
-$waveCanvas.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-$waveCanvas.Margin = [System.Windows.Thickness]::new(0, 0, 66, 0)
+$waveCanvas.Width = $card.Width
+$waveCanvas.Height = 90
+$waveCanvas.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Stretch
+$waveCanvas.VerticalAlignment = [System.Windows.VerticalAlignment]::Top
+$waveCanvas.Margin = [System.Windows.Thickness]::new(0)
 $waveCanvas.ClipToBounds = $true
 $waveCanvas.IsHitTestVisible = $false
-for ($waveIndex = 0; $waveIndex -lt 10; $waveIndex++) {
-    $startY = 72 - ($waveIndex * 4)
-    $firstY = 18 + ($waveIndex * 3)
-    $middleY = 42 + ($waveIndex * 2)
-    $endY = 20 + ($waveIndex * 4)
-    $geometry = 'M 0,{0} C 38,{0} 58,{1} 98,{2} C 140,{3} 164,{4} 250,{5}' -f $startY, $firstY, $middleY, ($middleY + 12), ($firstY + 8), $endY
+for ($waveIndex = 0; $waveIndex -lt 18; $waveIndex++) {
+    $startY = 90 + $waveIndex
+    $firstPeak = 55 + $waveIndex
+    $firstValley = 68 + [Math]::Floor($waveIndex * 0.6)
+    $mainPeak = 18 + ($waveIndex * 2)
+    $lastValley = 59 + $waveIndex
+    $endY = 40 + ($waveIndex * 2)
+    $geometry = 'M 202,{0} C 226,{0} 238,{1} 260,{1} C 280,{1} 288,{2} 310,{2} C 334,{2} 342,{3} 376,{3} C 410,{3} 422,{4} 454,{4} C 490,{4} 520,{5} 570,{5}' -f $startY, $firstPeak, $firstValley, $mainPeak, $lastValley, $endY
+
+    $waveBrush = [System.Windows.Media.LinearGradientBrush]::new()
+    $waveBrush.StartPoint = [System.Windows.Point]::new(0, 0)
+    $waveBrush.EndPoint = [System.Windows.Point]::new(1, 0)
+    $accentRgb = $agentMarkInk.TrimStart('#')
+    $waveBrush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color ('#B8' + $accentRgb)), 0)) | Out-Null
+    $waveBrush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color ('#D8' + $accentRgb)), 0.52)) | Out-Null
+    $waveBrush.GradientStops.Add([System.Windows.Media.GradientStop]::new((New-Color ('#38' + $accentRgb)), 1)) | Out-Null
+    $waveBrush.Opacity = 0.72 - ($waveIndex * 0.018)
+
     $wave = [System.Windows.Shapes.Path]::new()
     $wave.Data = [System.Windows.Media.Geometry]::Parse($geometry)
-    $wave.Stroke = New-Brush $agentMarkInk (0.34 - ($waveIndex * 0.017))
-    $wave.StrokeThickness = 0.8
+    $wave.Stroke = $waveBrush
+    $wave.StrokeThickness = 0.65
     $waveCanvas.Children.Add($wave) | Out-Null
 }
 [System.Windows.Controls.Panel]::SetZIndex($waveCanvas, 0)
@@ -897,6 +911,7 @@ $cardLayer.Children.Add($waveCanvas) | Out-Null
 
 $root = [System.Windows.Controls.StackPanel]::new()
 $root.Orientation = [System.Windows.Controls.Orientation]::Vertical
+$root.Margin = [System.Windows.Thickness]::new(14, 12, 12, 10)
 [System.Windows.Controls.Panel]::SetZIndex($root, 1)
 $cardLayer.Children.Add($root) | Out-Null
 
@@ -905,7 +920,6 @@ $header = [System.Windows.Controls.Grid]::new()
 foreach ($width in @(
     [System.Windows.GridLength]::Auto,
     [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star),
-    [System.Windows.GridLength]::Auto,
     [System.Windows.GridLength]::Auto,
     [System.Windows.GridLength]::Auto
 )) {
@@ -950,8 +964,10 @@ if ($TaskDelta -match '^\+\d+%$') {
     $taskBadge.Background = New-Brush $toneNeutral 0.07
     $taskBadge.BorderBrush = New-Brush $toneNeutral 0.14
     $taskBadge.BorderThickness = [System.Windows.Thickness]::new(1)
-    $taskBadge.CornerRadius = [System.Windows.CornerRadius]::new(9)
-    $taskBadge.Padding = [System.Windows.Thickness]::new(8, 4, 8, 4)
+    $taskBadge.Height = 38
+    $taskBadge.MinWidth = 48
+    $taskBadge.CornerRadius = [System.Windows.CornerRadius]::new(11)
+    $taskBadge.Padding = [System.Windows.Thickness]::new(9, 0, 9, 0)
     $taskBadge.Margin = [System.Windows.Thickness]::new(10, 0, 0, 0)
     $taskBadge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
     $taskBadge.Child = New-Label -Content $TaskDelta -Size 12 -Hex $titleInk -SemiBold
@@ -990,40 +1006,12 @@ $viewButton.Child = $viewContent
 [System.Windows.Controls.Grid]::SetColumn($viewButton, 3)
 $header.Children.Add($viewButton) | Out-Null
 
-$closeButton = [System.Windows.Controls.Border]::new()
-$closeButton.Width = 28
-$closeButton.Height = 36
-$closeButton.CornerRadius = [System.Windows.CornerRadius]::new(9)
-$closeButton.Background = [System.Windows.Media.Brushes]::Transparent
-$closeButton.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-$closeButton.Cursor = [System.Windows.Input.Cursors]::Hand
-$closeMark = [System.Windows.Shapes.Path]::new()
-$closeMark.Data = [System.Windows.Media.Geometry]::Parse('M 2,2 L 15,15 M 15,2 L 2,15')
-$closeMark.Stroke = New-Brush $bodyInk
-$closeMark.StrokeThickness = 1.8
-$closeMark.StrokeStartLineCap = [System.Windows.Media.PenLineCap]::Round
-$closeMark.StrokeEndLineCap = [System.Windows.Media.PenLineCap]::Round
-$closeMark.Width = 17
-$closeMark.Height = 17
-$closeMark.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Center
-$closeMark.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
-$closeButton.Child = $closeMark
-[System.Windows.Controls.Grid]::SetColumn($closeButton, 4)
-$header.Children.Add($closeButton) | Out-Null
-
 $viewButton.Add_MouseEnter({ $viewButton.Background = New-Brush $agentMarkInk 0.13 })
 $viewButton.Add_MouseLeave({ $viewButton.Background = New-Brush $hairline 0.055 })
 $viewButton.Add_MouseLeftButtonUp({
     param($sender, $eventArgs)
     $eventArgs.Handled = $true
     Show-VSCodeWindow
-    Invoke-Dismiss
-})
-$closeButton.Add_MouseEnter({ $closeButton.Background = New-Brush $hairline 0.065; $closeMark.Stroke = New-Brush $titleInk })
-$closeButton.Add_MouseLeave({ $closeButton.Background = [System.Windows.Media.Brushes]::Transparent; $closeMark.Stroke = New-Brush $bodyInk })
-$closeButton.Add_MouseLeftButtonUp({
-    param($sender, $eventArgs)
-    $eventArgs.Handled = $true
     Invoke-Dismiss
 })
 
@@ -1162,14 +1150,13 @@ function Invoke-Dismiss {
 
 $timer.Add_Tick({ Invoke-Dismiss })
 
-# Survol : le compte a rebours se fige et repart a zero. Un clic sur la carte
-# ouvre VS Code ; la croix ferme seulement la notification.
+# Survol : le compte a rebours se fige et repart a zero. Le bouton Voir ouvre
+# VS Code ; tout clic ailleurs sur la carte ferme simplement la notification.
 $window.Add_MouseEnter({ Stop-Countdown })
 $window.Add_MouseLeave({ Start-Countdown })
 $card.Add_MouseLeftButtonUp({
     param($sender, $eventArgs)
     $eventArgs.Handled = $true
-    Show-VSCodeWindow
     Invoke-Dismiss
 })
 

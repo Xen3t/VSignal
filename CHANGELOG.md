@@ -16,7 +16,8 @@ Toutes les modifications importantes de VSignal sont documentées ici.
 - Gemini dispose désormais de ses réglages de popup et d’alertes, ainsi que d’une action de test avec sa marque et son quota hebdomadaire.
 - Les cartes Claude, Codex et Gemini peuvent être affichées ou masquées séparément depuis les paramètres du panneau.
 - Les boutons des sections repliables partagent désormais les surfaces, bordures, rayons et retours d’interaction du reste du panneau.
-- Les notifications adoptent un format horizontal compact avec fond sombre translucide, bordure lumineuse et onde décorative aux couleurs du fournisseur, action `Voir` et fermeture séparée.
+- Les notifications adoptent un format horizontal compact avec fond sombre translucide, bordure lumineuse et onde décorative aux couleurs du fournisseur. Seul `Voir` ouvre VS Code ; tout clic ailleurs ferme la notification.
+- La description du projet et ses mots-clés reflètent désormais le suivi des quotas Gemini en plus des tâches Claude Code et Codex.
 
 ## 1.8.1 — 2026-09-03
 

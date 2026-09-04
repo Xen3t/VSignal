@@ -32,7 +32,10 @@
     "windows",
     "hooks",
     "quota",
-    "toast"
+    "quota-monitoring",
+    "toast",
+    "vscode-extension",
+    "antigravity"
   ],
   "activationEvents": [
     "onStartupFinished",

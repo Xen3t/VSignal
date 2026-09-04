@@ -1,5 +1,5 @@
 {
-  "extension.description": "Popups Windows discrètes qui préviennent quand une tâche Claude Code ou Codex se termine dans VS Code, avec les quotas restants.",
+  "extension.description": "Popups Windows pour les tâches Claude Code et Codex terminées, avec suivi des quotas Claude, Codex et Gemini.",
   "command.toggle": "Activer / désactiver",
   "command.refreshQuotas": "Actualiser les quotas",
   "command.setup": "Configurer Claude et Codex",

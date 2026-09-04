@@ -1,5 +1,5 @@
 {
-  "extension.description": "Discreet Windows popups when Claude Code or Codex finishes a task in VS Code, including remaining quotas.",
+  "extension.description": "Windows popups for completed Claude Code and Codex tasks, plus Claude, Codex, and Gemini quota monitoring.",
   "command.toggle": "Enable / disable",
   "command.refreshQuotas": "Refresh quotas",
   "command.setup": "Set up Claude and Codex",
